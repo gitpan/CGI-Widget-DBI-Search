@@ -1,0 +1,17 @@
+=head1 NAME
+
+Changes - CGI::Widget::DBI::Search change logfile
+
+=head1 CHANGES
+
+all changes without author attribution are by Adi Fairbank
+
+=over 3
+
+=item 0.10 - May 12, 2004
+
+initial public release
+
+=back
+
+=cut

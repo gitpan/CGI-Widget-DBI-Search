@@ -1,0 +1,42 @@
+CGI::Widget::DBI::Search - Database search widget
+
+DESCRIPTION
+
+CGI::Widget::DBI::Search encapsulates a DBI search in a Perl class,
+including all SQL statements required for performing the search,
+query results, HTML display methods, and multi-column, sortable result
+set displayed page-by-page (using HTML navigation links).
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make install
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+  DBI
+
+COPYRIGHT AND LICENCE
+
+(c) Adi Fairbank
+
+This module is free software; you can redistribute it and/or modify it
+under the terms of either:
+
+  a) the GNU General Public License as published by the Free Software
+     Foundation; either version 1, or (at your option) any later version,
+
+  or
+
+  b) the "Artistic License" which comes with this module.
+
+AUTHOR
+
+Adi Fairbank
+adi@adiraj.org
+April 1, 2004

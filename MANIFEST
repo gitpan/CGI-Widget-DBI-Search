@@ -1,0 +1,8 @@
+ARTISTIC
+Changes
+GPL
+MANIFEST
+Makefile.PL
+README
+lib/CGI/Widget/DBI/Search/Base.pm
+lib/CGI/Widget/DBI/Search.pm

@@ -8,6 +8,25 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.12 - Jan 31, 2008
+
+Improvements to documentation
+
+=item 0.11
+
+Made the default -fetchrow_closure an explicit method default_fetchrow_closure()
+so it can be used by subclasses.
+
+Config option -href_extra_vars now supports HASHREF syntax.
+
+Better documentation: eg. defaults for config options.
+
+Refactored some code into smaller methods for better readability/maintainability.
+
+Support reverse sorting if user clicks on current sortby column.
+
+Bugfix: show Prev/Next links even if -show_total_numresults config option not set
+
 =item 0.10 - May 12, 2004
 
 initial public release

@@ -6,3 +6,6 @@ Makefile.PL
 README
 lib/CGI/Widget/DBI/Search/Base.pm
 lib/CGI/Widget/DBI/Search.pm
+lib/CGI/Widget/DBI/TEST/Search.pm
+lib/CGI/Widget/DBI/TEST/TestCase.pm
+t/01search.t

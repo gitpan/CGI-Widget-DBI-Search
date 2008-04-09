@@ -8,11 +8,24 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.20 - Apr 9, 2008
+
+Add a few basic unit tests, written in Test::Unit
+
+Add default list of ORDER BY columns with -default_orderby_columns setting
+
+Add navigation links to nearby pages in search set, customizable with
+-page_range_nav_limit setting
+
+Refactoring to clean up and reduce amount of code:
+ new method make_nav_uri
+ remove bloated, obsolete method generate_nav_links
+
 =item 0.12 - Jan 31, 2008
 
 Improvements to documentation
 
-=item 0.11
+=item 0.11 - not released
 
 Made the default -fetchrow_closure an explicit method default_fetchrow_closure()
 so it can be used by subclasses.

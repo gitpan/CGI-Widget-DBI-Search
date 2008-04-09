@@ -13,6 +13,7 @@ To install this module type the following:
 
    perl Makefile.PL
    make
+   make test
    make install
 
 DEPENDENCIES
@@ -39,4 +40,3 @@ AUTHOR
 
 Adi Fairbank
 adi@adiraj.org
-April 1, 2004 (initial release)

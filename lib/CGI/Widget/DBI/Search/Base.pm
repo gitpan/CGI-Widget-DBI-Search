@@ -36,7 +36,7 @@ sub log_error {
 
 sub warn {
     my ($self, $method, $msg) = @_;
-    return unless DEBUG;
+    return unless $self->{_DEBUG} || DEBUG;
     my $logmsg = (ref($self)||$self)."->".$method.": ".$msg;
     if (ref $self->{r} eq "Apache") {
 	$self->{r}->warn($logmsg);
@@ -58,7 +58,7 @@ Adi Fairbank <adi@adiraj.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2004 - Adi Fairbank
+Copyright (c) 2004-2008 - Adi Fairbank
 
 This software, the CGI::Widget::DBI::Search::Base Perl module,
 is copyright Adi Fairbank.
@@ -77,6 +77,6 @@ under the terms of either:
 
 =head1 LAST MODIFIED
 
-April 01, 2004
+April 9, 2008
 
 =cut

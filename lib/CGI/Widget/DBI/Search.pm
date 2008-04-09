@@ -5,7 +5,7 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = "0.12";
+$CGI::Widget::DBI::Search::VERSION = '0.20';
 
 use DBI;
 
@@ -13,6 +13,7 @@ use DBI;
 
 # default values - these can be overridden by method parameters
 use constant MAX_PER_PAGE => 20;
+use constant PAGE_RANGE_NAV_LIMIT => 10;
 
 use constant SQL_DATABASE       => "";
 
@@ -38,14 +39,14 @@ use constant VARS_TO_KEEP =>
    -pre_nondb_columns => 1, -post_nondb_columns => 1,
    -action_uri => 1, -display_table_padding => 1,
    -display_columns => 1, -unsortable_columns => 1,
-   -numeric_columns => 1, -currency_columns => 1,
+   -numeric_columns => 1, -currency_columns => 1, -default_orderby_columns => 1,
    -optional_header => 1, -optional_footer => 1, -href_extra_vars => 1,
    -where_clause => 1, -bind_params => 1, -opt_precols_sql => 1,
-   -max_results_per_page => 1, -show_total_numresults => 1,
+   -max_results_per_page => 1, -page_range_nav_limit => 1, -show_total_numresults => 1,
    -no_persistent_object => 1,
    # vars not beginning with '-' are instance vars, set by methods in class
-   results => 1, numresults  => 1, page        => 1,
-   sortby  => 1, page_sortby => 1, reverse_pagesort => 1
+   results => 1, numresults => 1, page => 1, lastpage => 1, sortby  => 1,
+   page_sortby => 1, reverse_pagesort => 1,
   };
 
 sub cleanup {
@@ -139,6 +140,11 @@ Possible configuration options:
                            This is commonly something like 'DISTINCT',
   -where_clause         => Literal SQL WHERE clause to use in SELECT state-
                            ment sent to database (may contain placeholders),
+  -default_orderby_columns => [ARRAY] Default list of columns to use in ORDER BY
+                           clause.  If 'sortby' cgi param is passed (e.g. from
+                           user clicking a column sort link), it will always be
+                           the first column in the ORDER BY clause, with these
+                           coming after it.
   -bind_params          => [ARRAY] If -where_clause used placeholders ("?"),
                            this must be the ordered values to use for them,
   -fetchrow_closure     => (CODE) A code ref to execute upon retrieving a
@@ -187,6 +193,9 @@ Possible configuration options:
   -max_results_per_page   => Maximum number of database records to display on a
                              single page of search result display table
                              (default: 20)
+  -page_range_nav_limit   => Maximum number of pages to allow user to navigate to
+                             before and after the current page in the result set
+                             (default: 10)
   -show_total_numresults  => Show total number of records found by most recent
                              search, with First/Last page navigation links
                              (default: true)
@@ -334,12 +343,21 @@ sub search {
     $self->{-where_clause} = $where_clause if $where_clause;
     $self->{-bind_params} = $bind_params if ref $bind_params eq "ARRAY";
     $self->{-max_results_per_page} ||= MAX_PER_PAGE;
+    $self->{-page_range_nav_limit} ||= PAGE_RANGE_NAV_LIMIT;
     $self->{-limit_clause} =
       ('LIMIT '.($self->{-max_results_per_page}*$self->{'page'}).','.
        $self->{-max_results_per_page});
-    $self->{-orderby_clause} = 'ORDER BY '.$self->{'sortby'}
-      if $self->{'sortby'};
-    $self->{-orderby_clause} .= ' DESC' if $self->{'sort_reverse'};
+
+    my @orderby;
+    if (ref $self->{-default_orderby_columns} eq 'ARRAY') {
+        @orderby = @{ $self->{-default_orderby_columns} };
+    }
+    if ($self->{'sortby'}) {
+        @orderby = ($self->{'sortby'}, grep($_ ne $self->{'sortby'}, @orderby));
+    }
+    $self->{-orderby_clause} =
+      'ORDER BY '.join(',', map {$_.($self->{'sort_reverse'} ? ' DESC' : '')} @orderby)
+        if @orderby;
 
     eval {
 	my $should_disconnect = !(ref $self->{-dbh} eq "DBI::db");
@@ -389,7 +407,11 @@ sub search {
 
 Executes a SELECT COUNT() query with the current search parameters and stores result
 in object variable: 'numresults'.  Has no effect unless -show_total_numresults object
-variable is true.  Th is used for displaying total number of results found, and is
+variable is true.  As a side-effect, this method also sets the 'lastpage' object
+variable which, no surprise, is the page number denoting the last page in the search
+result set.
+
+This is used for displaying total number of results found, and is
 necessary to provide a last-page link to skip to the end of the search results.
 
 =cut
@@ -400,11 +422,13 @@ sub get_num_results {
 
     # read total number of results in search set
     my $sth = $self->{-dbh}->prepare_cached
-      ("SELECT COUNT(1) FROM ".$self->{-sql_table}." ".$self->{-where_clause});
+      ("SELECT COUNT(1) FROM ".$self->{-sql_table}." ".($self->{-where_clause}||''));
     $sth->execute(@{$self->{-bind_params}});
     my $ary_ref = $sth->fetchrow_arrayref;
     $sth->finish;
-    return $self->{'numresults'} = $ary_ref->[0];
+    $self->{'numresults'} = $ary_ref->[0];
+    $self->{'lastpage'} = int(($self->{'numresults'} - 1) / $self->{-max_results_per_page});
+    return $self->{'numresults'};
 }
 
 
@@ -417,28 +441,28 @@ based on sort column $col and boolean $reverse parameters.
 
 =cut
 
-sub pagesort_results {
-    my ($self, $col, $reverse) = @_;
+# sub pagesort_results {
+#     my ($self, $col, $reverse) = @_;
 
-    # handle sorting by arbitrary data column
-    if ($self->{'page_sortby'} and $reverse) {
-	# toggle reverse flag if they clicked the current sort column
-	$self->{'reverse_pagesort'}->{$self->{'page_sortby'}} =
-	  $self->{'reverse_pagesort'}->{$self->{'page_sortby'}} ? 0 : 1;
-	@{$self->{'results'}} = reverse @{$self->{'results'}};
-    } else {
-	# set new page_sortby column, and sort results array
-	$self->{'page_sortby'} = $col;
-	@{$self->{'results'}} = sort {
-	    ($self->{-numeric_columns}->{$self->{'page_sortby'}} ||
-	     $self->{-currency_columns}->{$self->{'page_sortby'}}
-	     ? $a->{$self->{'page_sortby'}} <=> $b->{$self->{'page_sortby'}}
-	     : uc($a->{$self->{'page_sortby'}}) cmp uc($b->{$self->{'page_sortby'}}))
-	} @{$self->{'results'}};
-	@{$self->{'results'}} = reverse @{$self->{'results'}}
-	  if $self->{'reverse_pagesort'}->{$self->{'page_sortby'}};
-    }
-}
+#     # handle sorting by arbitrary data column
+#     if ($self->{'page_sortby'} and $reverse) {
+# 	# toggle reverse flag if they clicked the current sort column
+# 	$self->{'reverse_pagesort'}->{$self->{'page_sortby'}} =
+# 	  $self->{'reverse_pagesort'}->{$self->{'page_sortby'}} ? 0 : 1;
+# 	@{$self->{'results'}} = reverse @{$self->{'results'}};
+#     } else {
+# 	# set new page_sortby column, and sort results array
+# 	$self->{'page_sortby'} = $col;
+# 	@{$self->{'results'}} = sort {
+# 	    ($self->{-numeric_columns}->{$self->{'page_sortby'}} ||
+# 	     $self->{-currency_columns}->{$self->{'page_sortby'}}
+# 	     ? $a->{$self->{'page_sortby'}} <=> $b->{$self->{'page_sortby'}}
+# 	     : uc($a->{$self->{'page_sortby'}}) cmp uc($b->{$self->{'page_sortby'}}))
+# 	} @{$self->{'results'}};
+# 	@{$self->{'results'}} = reverse @{$self->{'results'}}
+# 	  if $self->{'reverse_pagesort'}->{$self->{'page_sortby'}};
+#     }
+# }
 
 
 =item display_results([ $disp_cols ])
@@ -539,8 +563,12 @@ sub display_results {
 	} @cols );
     }
 
-    my ($prevlink, $nextlink, $firstlink, $lastlink) =
-      $self->generate_nav_links();
+    my ($prevlink, $nextlink, $firstlink, $lastlink) = (
+        make_nav_uri($self, $self->{'page'} - 1),
+        make_nav_uri($self, $self->{'page'} + 1),
+        make_nav_uri($self, 0),
+        make_nav_uri($self, $self->{'lastpage'}),
+    );
 
     return
       ($self->{-optional_header} .
@@ -557,50 +585,28 @@ sub display_results {
        $self->display_pager_links
        ($self->{'page'}, $#{$self->{'results'}}+1,
 	$self->{-max_results_per_page}, $self->{'numresults'},
-	$prevlink, $nextlink, $firstlink, $lastlink) .
+	$prevlink, $nextlink, $firstlink, $lastlink, undef, 1) .
 
        $self->{-optional_footer}
       );
 }
 
+=item make_nav_uri( $page_no )
 
-=item generate_nav_links()
-
-Returns four URIs for navigating through search results:
- $prevlink, $nextlink, $firstlink, $lastlink
+Generates and returns a URI for a given page number in the search result set.
+Pages start at 0, with each page containing at most -max_results_per_page.
 
 =cut
 
-sub generate_nav_links {
-    my ($self) = @_;
-
-    my $firstlink = my $lastlink;
-    my $prevlink = my $nextlink =
-      BASE_URI().$self->{'action_uri'}.'?search_startat=';
-    if ($self->{-show_total_numresults}) {
-	$firstlink = $lastlink = $prevlink;
-	$firstlink .= '0';
-	$lastlink .= int(($self->{'numresults'}-1) /
-			 $self->{-max_results_per_page});
+sub make_nav_uri {
+    my ($self, $page_no) = @_;
+    my $link = BASE_URI().$self->{'action_uri'}.'?search_startat='.$page_no;
+    if ($self->{-no_persistent_object} && $self->{'sortby'}) {
+        $link .= '&sortby=' . ($self->{'sortby'}||'')
+          . '&sort_reverse=' . ($self->{'sort_reverse'}||'');
     }
-    $prevlink .= $self->{'page'} - 1;
-    $nextlink .= $self->{'page'} + 1;
-    if ($self->{-no_persistent_object} and $self->{'sortby'}) {
-        my $sortby_args = '&sortby=' . ($self->{'sortby'}||'')
-            . '&sort_reverse=' . ($self->{'sort_reverse'}||'');
-	$prevlink .= $sortby_args;
-	$nextlink .= $sortby_args;
-	$firstlink .= $sortby_args if $firstlink;
-	$lastlink .= $sortby_args if $lastlink;
-    }
-    if ($self->{-href_extra_vars}) {
-	$prevlink .= $self->{-href_extra_vars};
-	$nextlink .= $self->{-href_extra_vars};
-	$firstlink .= $self->{-href_extra_vars} if $firstlink;
-	$lastlink .= $self->{-href_extra_vars} if $lastlink;
-    }
-
-    return ($prevlink, $nextlink, $firstlink, $lastlink);
+    $link .= $self->{-href_extra_vars} || '';
+    return $link;
 }
 
 
@@ -622,6 +628,9 @@ parameters:
   $lastlink	HTML href link to last page of results
   $showtotal	boolean to toggle whether to show total number
                 of results along with range on current page
+  $showpages    boolean to toggle whether to show page range links
+                for easier navigation in large datasets
+                (has no effect unless a value for $searchtotal is passed)
 
 =back
 
@@ -629,14 +638,14 @@ parameters:
 
 sub display_pager_links {
     my ($self, $startat, $pagetotal, $maxpagesize, $searchtotal,
-	$prevlink, $nextlink, $firstlink, $lastlink, $showtotal) = @_;
+	$prevlink, $nextlink, $firstlink, $lastlink, $showtotal, $showpages) = @_;
     my $q = $self->{q};
-
+    my $middle_column = $showtotal || $showpages && $searchtotal;
     return
       ($q->table
        ({-width => '96%'}, $q->Tr
 	($q->td({-align => 'left',
-		 -width => $showtotal ? '30%' : '50%'},
+		 -width => $middle_column ? '30%' : '50%'},
 		$q->font({-size => '-1'},
 			 ($startat > 0
 			  ? $q->b(($firstlink
@@ -645,16 +654,24 @@ sub display_pager_links {
 				   : '').
 				  $q->a({-href =>$prevlink}, "&lt;Previous"))
 			  : "|At first page"))) .
-	 ($showtotal
-	  ? $q->td({-width => '40%'}, "<B>$pagetotal</B> result".
-		   ($pagetotal == 1 ? '' : 's')." displayed".
-		   ($searchtotal
-		    ? (': <B>'.($startat*$maxpagesize + 1).' - '.
-		       ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
-		       $searchtotal.'</B>')
-		    : ''))
+	 ($middle_column
+	  ? $q->td({-align => 'center', -width => '40%', -nowrap => 1},
+                   ($showtotal
+                    ? "<B>$pagetotal</B> result".
+                      ($pagetotal == 1 ? '' : 's')." displayed".
+                      ($searchtotal
+                       ? (': <B>'.($startat*$maxpagesize + 1).' - '.
+                          ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
+                          $searchtotal.'</B>')
+                       : '').$q->br
+                    : '') .
+                    ($showpages && $searchtotal
+                     ? $q->font({-size => '-1'},
+                                "Skip to page: ".display_page_range_links($self, $startat))
+                     : '')
+                  )
 	  : '') .
-	 $q->td({-align => 'right', -width => $showtotal ? '30%' : '50%'},
+	 $q->td({-align => 'right', -width => $middle_column ? '30%' : '50%'},
 		$q->font({-size => '-1'},
 			 (defined $maxpagesize &&
 			  ((defined $searchtotal
@@ -666,6 +683,37 @@ sub display_pager_links {
 				   : ''))
 			  : "At last page|"))))
        ));
+}
+
+
+=item display_page_range_links()
+
+Returns a chunk of HTML which shows links to the surrounding pages in the search set.
+The number of pages shown is determined by the -page_range_nav_limit setting.
+
+=cut
+
+sub display_page_range_links {
+    my ($self, $startat) = @_;
+    my $q = $self->{q};
+    my (@page_range, $pre, $post) = ((), '', '');
+    if ($startat <= $self->{-page_range_nav_limit}
+          && $startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
+        @page_range = 0 .. $self->{'lastpage'};
+    } elsif ($startat <= $self->{-page_range_nav_limit}) {
+        @page_range = 0 .. ($startat + $self->{-page_range_nav_limit});
+        $post = ' ...';
+    } elsif ($startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
+        @page_range = ($startat - $self->{-page_range_nav_limit}) .. $self->{'lastpage'};
+        $pre = '... ';
+    } else {
+        @page_range = ($startat - $self->{-page_range_nav_limit}) .. ($startat + $self->{-page_range_nav_limit});
+        $pre = '... ';
+        $post = ' ...';
+    }
+    return $pre.join(' ', map {
+        $startat == $_ ? $q->b($_) : $q->a({-href => make_nav_uri($self, $_)}, $_)
+    } @page_range).$post;
 }
 
 
@@ -715,6 +763,6 @@ or try the following URL which references a copy of it (as of June 8, 2003):
 
 =head1 LAST MODIFIED
 
-Jan 31, 2008
+Apr 9, 2008
 
 =cut

@@ -333,11 +333,38 @@ sub test_search__default_orderby_and_sorting
     );
 }
 
-# sub test_search__with_restricted_column_display
-# {
-#     my $self = shift;
-#     my $ws = $self->{ws};
-# }
+sub test_display_results
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+
+    $ws->{-sql_table} = 'widgets';
+    $ws->{-sql_retrieve_columns} = [qw/widget_no name description size/];
+
+    $ws->search();
+
+    $self->assert_matches(
+        qr/\b1\b.*\bclock_widget\b.*\bA\ time\ keeper\ widget\b.*\bsmall\b.*
+           \b2\b.*\bcalendar_widget\b.*\bA\ date\ tracker\ widget\b.*\bmedium\b.*
+           \b3\b.*\bsilly_widget\b.*\bA\ goofball\ widget\b.*\bunknown\b
+          /sx,
+        $ws->display_results,
+    );
+
+    # reset search and set default ordering
+    delete $ws->{'results'};
+    $ws->{-default_orderby_columns} = [qw/name widget_no/];
+
+    $ws->search();
+
+    $self->assert_matches(
+        qr/\b2\b.*\bcalendar_widget\b.*\bA\ date\ tracker\ widget\b.*\bmedium\b.*
+           \b1\b.*\bclock_widget\b.*\bA\ time\ keeper\ widget\b.*\bsmall\b.*
+           \b3\b.*\bsilly_widget\b.*\bA\ goofball\ widget\b.*\bunknown\b
+          /sx,
+        $ws->display_results,
+    );
+}
 
 
 1;

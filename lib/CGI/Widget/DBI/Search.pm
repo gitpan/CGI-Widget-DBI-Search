@@ -1,11 +1,10 @@
 package CGI::Widget::DBI::Search;
 
-require 5.004;
 use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.20';
+$CGI::Widget::DBI::Search::VERSION = '0.21';
 
 use DBI;
 
@@ -160,6 +159,19 @@ Possible configuration options:
 
 =item Search result display options
 
+The following settings affect display of search results, but also affect
+the search logic (SQL query executed).
+
+  -max_results_per_page   => Maximum number of database records to display on a
+                             single page of search result display table
+                             (default: 20)
+  -show_total_numresults  => Show total number of records found by most recent
+                             search, with First/Last page navigation links
+                             (default: true)
+
+The following settings only affect display of search results, not the
+search logic.
+
   -display_table_padding  => Size of HTML display table cellpadding attribute,
   -display_columns        => {HASH} Associative array holding column names as
                              keys, and labels for display table as values,
@@ -190,15 +202,9 @@ Possible configuration options:
                              same as key.
   -action_uri             => HTTP URI of script this is running under
                              (default: SCRIPT_NAME environment variable),
-  -max_results_per_page   => Maximum number of database records to display on a
-                             single page of search result display table
-                             (default: 20)
   -page_range_nav_limit   => Maximum number of pages to allow user to navigate to
                              before and after the current page in the result set
                              (default: 10)
-  -show_total_numresults  => Show total number of records found by most recent
-                             search, with First/Last page navigation links
-                             (default: true)
   -columndata_closures    => {HASH} of (CODE): Reference to a hash containing a
                              code reference for each column which should be
                              passed through before displaying in result table.
@@ -245,27 +251,6 @@ sub _set_defaults {
       unless defined $self->{-show_total_numresults};
     $self->{-no_persistent_object} = 1
       unless defined $self->{-no_persistent_object};
-}
-
-=item _set_display_defaults()
-
-Sets object variables for displaying search results.  Called from display_results() method.
-
-=cut
-
-sub _set_display_defaults {
-    my ($self) = @_;
-    $self->{'action_uri'} = $self->{-action_uri} || $ENV{SCRIPT_NAME};
-    $self->{-unsortable_columns} ||= {};
-
-    $self->{-href_extra_vars} = join('&', map {
-	"$_=".(defined $self->{-href_extra_vars}->{$_}
-	       ? $self->{-href_extra_vars}->{$_}
-	       : $self->{q}->param($_));
-    } keys %{$self->{-href_extra_vars}})
-      if ref $self->{-href_extra_vars} eq "HASH";
-    $self->{-href_extra_vars} = '&'.$self->{-href_extra_vars}
-      unless $self->{-href_extra_vars} =~ m/^&/;
 }
 
 
@@ -431,7 +416,6 @@ sub get_num_results {
     return $self->{'numresults'};
 }
 
-
 =item pagesort_results($col, $reverse)
 
 Sorts a single page of results by column $col.  Reorders object variable 'results'
@@ -464,7 +448,6 @@ based on sort column $col and boolean $reverse parameters.
 #     }
 # }
 
-
 =item display_results([ $disp_cols ])
 
 Displays an HTML table of data values stored in object variable 'results' (retrieved
@@ -475,245 +458,50 @@ object variable -display_columns.
 
 sub display_results {
     my ($self, $disp_cols) = @_;
-    my $q = $self->{q};
-
-    unless (ref $self->{'results'} eq "ARRAY" and
-	    (ref $self->{-sql_table_columns} eq "ARRAY" or
+    unless (ref $self->{'results'} eq "ARRAY" &&
+	    (ref $self->{-sql_table_columns} eq "ARRAY" ||
 	     ref $self->{-sql_retrieve_columns} eq "ARRAY")) {
 	$self->log_error("display_results", "instance variables '-sql_table_columns' or '-sql_retrieve_columns', and data resultset 'results' (ARRAYs) are required");
 	return undef;
     }
 
-    $self->_set_display_defaults();
-
-    # read ordered list of table columns
-    my @sql_table_columns = ref $self->{-sql_retrieve_columns} eq "ARRAY"
-      ? @{$self->{-sql_retrieve_columns}} : @{$self->{-sql_table_columns}};
-    my @pre_nondb_columns = ref $self->{-pre_nondb_columns} eq "ARRAY"
-      ? @{$self->{-pre_nondb_columns}} : ();
-    my @post_nondb_columns = ref $self->{-post_nondb_columns} eq "ARRAY"
-      ? @{$self->{-post_nondb_columns}} : ();
-
     $self->{-display_columns} = $disp_cols if ref $disp_cols eq "HASH";
-    $self->{-display_columns} =
-      { map {my $c=$_; $c =~ s/.*[. ](\w+)$/$1/; $c=>$c} @sql_table_columns }
-	unless ref $self->{-display_columns} eq "HASH";
 
-#    if ($q->param('page_sortby') and
-#	!$self->{-unsortable_columns}->{$q->param('page_sortby')}) {
-#	$self->pagesort_results($q->param('page_sortby'),
-#			    $self->{'page_sortby'} eq $q->param('page_sortby'));
-#    }
-
-    # build displayed column headers along with sort links and direction arrow
-    my (@cols, $header_labels, @rows);
-    foreach my $col (@pre_nondb_columns, @sql_table_columns, @post_nondb_columns) {
-	# remove any "tbl." if SQL stmt uses tbl aliases
-	$col =~ s/.*[. ](\w+)$/$1/;
-	if ($self->{-display_columns}->{$col}) {
-	    push(@cols, $col);
-	    if ($self->{-unsortable_columns}->{$col}) {
-		$header_labels .=
-		  $q->td({-bgcolor => TABLE_HEADER_BGCOLOR(),
-			  ($self->{-currency_columns}->{$col}
-                           || $self->{-numeric_columns}->{$col}
-			   ? (-align=>'right') : ()), -nowrap=>1},
-			 $self->{-display_columns}->{$col});
-	    } else {
-		# if no page_sortby column was set, use first sortable one
-		#$self->pagesort_results($col) unless $self->{'page_sortby'};
-		$header_labels .= $q->td
-		  ({-bgcolor => TABLE_HEADER_BGCOLOR(),
-		    ($self->{-currency_columns}->{$col}
-                     || $self->{-numeric_columns}->{$col}
-		     ? (-align=>'right') : ()), -nowrap=>1},
-		   ($col eq $self->{'sortby'} ? "<B>" : "") .
-		   $q->a({-href => BASE_URI().$self->{'action_uri'}.
-			  '?sortby='.$col.
-			  ($col eq $self->{'sortby'}
-			   ? '&sort_reverse='.(!$self->{'sort_reverse'}) : '').
-			  $self->{-href_extra_vars}},
-			 $self->{-display_columns}->{$col}) . " " .
-		   ($col eq $self->{'sortby'}
-		    ? ($self->{'sort_reverse'} ? '\\/' :'/\\')."</B>"
-		    : ''));
-	    }
-	}
-    }
-
-    # iterate over most recently returned 'results', which should be a
-    # (possibly blessed) hashref
-    my $color;
-    foreach my $row (@{$self->{'results'}}) {
-	# toggle color
-	$color = (($color||'') eq TABLE_BGCOLOR2()
-		  ? TABLE_BGCOLOR1()
-		  : TABLE_BGCOLOR2());
-
-	# build a table row
-	push(@rows, join '', map {
-	    (ref $self->{-columndata_closures}->{$_} eq "CODE"
-	     ? $self->{-columndata_closures}->{$_}->($self, $row, $color)
-	     : $self->{-currency_columns}->{$_}
-	     ? $q->td({-bgcolor => $color, -align => 'right'},
-		      sprintf('$%.2f', $row->{$_}))
-	     : $self->{-numeric_columns}->{$_}
-             ? $q->td({-bgcolor => $color, -align => 'right'}, $row->{$_})
-	     : $q->td({-bgcolor => $color}, $row->{$_}))
-	} @cols );
-    }
-
-    my ($prevlink, $nextlink, $firstlink, $lastlink) = (
-        make_nav_uri($self, $self->{'page'} - 1),
-        make_nav_uri($self, $self->{'page'} + 1),
-        make_nav_uri($self, 0),
-        make_nav_uri($self, $self->{'lastpage'}),
-    );
-
-    return
-      ($self->{-optional_header} .
-
-       $self->display_pager_links
-       ($self->{'page'}, $#{$self->{'results'}}+1,
-	$self->{-max_results_per_page}, $self->{'numresults'},
-	$prevlink, $nextlink, $firstlink, $lastlink, 1) .
-
-       $q->table
-       ({-cellpadding => $self->{-display_table_padding} ? $self->{-display_table_padding} : '2',
-	 -width => '96%'}, $q->Tr([ $header_labels, @rows ])) .
-
-       $self->display_pager_links
-       ($self->{'page'}, $#{$self->{'results'}}+1,
-	$self->{-max_results_per_page}, $self->{'numresults'},
-	$prevlink, $nextlink, $firstlink, $lastlink, undef, 1) .
-
-       $self->{-optional_footer}
-      );
+    use CGI::Widget::DBI::Search::Display::Table;
+    $self->{display} = CGI::Widget::DBI::Search::Display::Table->new($self);
+    $self->_transfer_display_settings();
+    return $self->{display}->display();
 }
 
-=item make_nav_uri( $page_no )
+=item _transfer_display_settings()
 
-Generates and returns a URI for a given page number in the search result set.
-Pages start at 0, with each page containing at most -max_results_per_page.
+Transfers all display-specific settings from search widget object to the
+search display widget object.
 
 =cut
 
-sub make_nav_uri {
-    my ($self, $page_no) = @_;
-    my $link = BASE_URI().$self->{'action_uri'}.'?search_startat='.$page_no;
-    if ($self->{-no_persistent_object} && $self->{'sortby'}) {
-        $link .= '&sortby=' . ($self->{'sortby'}||'')
-          . '&sort_reverse=' . ($self->{'sort_reverse'}||'');
+sub _transfer_display_settings {
+    my ($self) = @_;
+    foreach my $var (
+        qw/-action_uri
+           -columndata_closures
+           -currency_columns
+           -display_columns
+           -display_table_padding
+           -href_extra_vars
+           -numeric_columns
+           -optional_header
+           -optional_footer
+           -page_range_nav_limit
+           -post_nondb_columns
+           -pre_nondb_columns
+           -unsortable_columns
+          /) {
+        if (defined $self->{$var}) {
+            $self->{display}->{$var} = $self->{$var};
+            delete $self->{$var};
+        }
     }
-    $link .= $self->{-href_extra_vars} || '';
-    return $link;
-}
-
-
-=item display_pager_links($startat, $pagetotal, $maxpagesize, $searchtotal,
-			  $prevlink, $nextlink, $firstlink, $lastlink, $showtotal)
-
-Returns an HTML table containing navigation links for first, previous, next,
-and last pages of result set.  This method is called from display_results()
-and should be treated as a protected method.
-
-parameters:
-  $startat	page of results on which to start
-  $pagetotal	number of items on *this* page
-  $maxpagesize	size of page: maximum number of items to show per page
-  $searchtotal	total number of items returned by search
-  $prevlink	HTML href link to previous page of results
-  $nextlink	HTML href link to next page of results
-  $firstlink	HTML href link to first page of results
-  $lastlink	HTML href link to last page of results
-  $showtotal	boolean to toggle whether to show total number
-                of results along with range on current page
-  $showpages    boolean to toggle whether to show page range links
-                for easier navigation in large datasets
-                (has no effect unless a value for $searchtotal is passed)
-
-=back
-
-=cut
-
-sub display_pager_links {
-    my ($self, $startat, $pagetotal, $maxpagesize, $searchtotal,
-	$prevlink, $nextlink, $firstlink, $lastlink, $showtotal, $showpages) = @_;
-    my $q = $self->{q};
-    my $middle_column = $showtotal || $showpages && $searchtotal;
-    return
-      ($q->table
-       ({-width => '96%'}, $q->Tr
-	($q->td({-align => 'left',
-		 -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 ($startat > 0
-			  ? $q->b(($firstlink
-				   ? $q->a({-href =>$firstlink},
-					   "|&lt;First").'&nbsp;&nbsp;&nbsp;'
-				   : '').
-				  $q->a({-href =>$prevlink}, "&lt;Previous"))
-			  : "|At first page"))) .
-	 ($middle_column
-	  ? $q->td({-align => 'center', -width => '40%', -nowrap => 1},
-                   ($showtotal
-                    ? "<B>$pagetotal</B> result".
-                      ($pagetotal == 1 ? '' : 's')." displayed".
-                      ($searchtotal
-                       ? (': <B>'.($startat*$maxpagesize + 1).' - '.
-                          ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
-                          $searchtotal.'</B>')
-                       : '').$q->br
-                    : '') .
-                    ($showpages && $searchtotal
-                     ? $q->font({-size => '-1'},
-                                "Skip to page: ".display_page_range_links($self, $startat))
-                     : '')
-                  )
-	  : '') .
-	 $q->td({-align => 'right', -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 (defined $maxpagesize &&
-			  ((defined $searchtotal
-			    && $startat != int(($searchtotal-1)/$maxpagesize))
-			   || (!$searchtotal && $pagetotal >= $maxpagesize))
-			  ? $q->b($q->a({-href =>$nextlink}, "Next&gt;").
-				  ($lastlink
-				   ? '&nbsp;&nbsp;&nbsp;'.$q->a({-href =>$lastlink},"Last&gt;|")
-				   : ''))
-			  : "At last page|"))))
-       ));
-}
-
-
-=item display_page_range_links()
-
-Returns a chunk of HTML which shows links to the surrounding pages in the search set.
-The number of pages shown is determined by the -page_range_nav_limit setting.
-
-=cut
-
-sub display_page_range_links {
-    my ($self, $startat) = @_;
-    my $q = $self->{q};
-    my (@page_range, $pre, $post) = ((), '', '');
-    if ($startat <= $self->{-page_range_nav_limit}
-          && $startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
-        @page_range = 0 .. $self->{'lastpage'};
-    } elsif ($startat <= $self->{-page_range_nav_limit}) {
-        @page_range = 0 .. ($startat + $self->{-page_range_nav_limit});
-        $post = ' ...';
-    } elsif ($startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
-        @page_range = ($startat - $self->{-page_range_nav_limit}) .. $self->{'lastpage'};
-        $pre = '... ';
-    } else {
-        @page_range = ($startat - $self->{-page_range_nav_limit}) .. ($startat + $self->{-page_range_nav_limit});
-        $pre = '... ';
-        $post = ' ...';
-    }
-    return $pre.join(' ', map {
-        $startat == $_ ? $q->b($_) : $q->a({-href => make_nav_uri($self, $_)}, $_)
-    } @page_range).$post;
 }
 
 

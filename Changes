@@ -8,6 +8,24 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.22 - Apr 17, 2008
+
+API change: -columndata_closures is now only expected to return a table cell
+contents, not the table cell itself (html <td/> element)
+
+New abstract base class for display classes CGI::Widget::DBI::Search::AbstractDisplay
+
+Add new display class CGI::Widget::DBI::Search::Display::Grid, plus unit tests
+
+Refactor several methods in CGI::Widget::DBI::Search::Display::Table for
+simplicity and to develop a better display API
+
+Get rid of several warnings emitted by CGI::Widget::DBI::Search::Display::Table
+
+Add unit tests for CGI::Widget::DBI::Search::Display::Table
+
+Add prerequisite perl modules CGI and DBI in Makefile.PL, to make cpan testers happier
+
 =item 0.21 - Apr 11, 2008
 
 Abstract all display code into separate class CGI::Widget::DBI::Search::Display::Table

@@ -4,9 +4,11 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.21';
+$CGI::Widget::DBI::Search::VERSION = '0.22';
 
 use DBI;
+use CGI::Widget::DBI::Search::Display::Table;
+use CGI::Widget::DBI::Search::Display::Grid;
 
 # --------------------- USER CUSTOMIZABLE VARIABLES ------------------------
 
@@ -215,6 +217,14 @@ search logic.
                              and is (currently) expected to return an HTML table
                              cell (e.g. "<td>blah</td>")
 
+  -display_mode           => ('table'|'grid') Which of the default display modes
+                             to use, table or grid.
+                             (default: table)
+  -display_class          => Actual class to use to display search results.
+                             (default: CGI::Widget::DBI::Search::Display::Table)
+  -grid_columns           => Maximum number of columns to render, if displaying
+                             as grid
+
 =item Universal options
 
   -no_persistent_object   => Inform object that we are not running under a
@@ -253,6 +263,8 @@ sub _set_defaults {
       unless defined $self->{-no_persistent_object};
 }
 
+
+=back
 
 =head1 METHODS
 
@@ -294,10 +306,12 @@ sub search {
     $self->_set_defaults;
 
     # method call syntax checks
-    unless ($self->{-sql_table} and
-	    ref $self->{-sql_retrieve_columns} eq "ARRAY" and
-	    (ref $self->{-dbh} eq "DBI::db" or $self->{-dbi_connect_dsn} and
-	     defined $self->{-dbi_user} and defined $self->{-dbi_pass})) {
+    unless ($self->{-sql_table}
+	    && ref $self->{-sql_retrieve_columns} eq "ARRAY"
+            && (ref $self->{-dbh} eq "DBI::db"
+                || $self->{-dbi_connect_dsn}
+                  && defined $self->{-dbi_user}
+                  && defined $self->{-dbi_pass})) {
 	$self->log_error("search", "instance variables '-sql_table' (SCALAR), '-sql_retrieve_columns' (ARRAY); '-dbh' or '-dbi_connect_dsn' and '-dbi_user' and '-dbi_pass' (SCALARs) are required");
 	return undef;
     }
@@ -467,8 +481,10 @@ sub display_results {
 
     $self->{-display_columns} = $disp_cols if ref $disp_cols eq "HASH";
 
-    use CGI::Widget::DBI::Search::Display::Table;
-    $self->{display} = CGI::Widget::DBI::Search::Display::Table->new($self);
+    $self->{-display_class} ||= $self->{-display_mode} && $self->{-display_mode} eq 'grid'
+      ? 'CGI::Widget::DBI::Search::Display::Grid'
+      : 'CGI::Widget::DBI::Search::Display::Table';
+    $self->{display} = $self->{-display_class}->new($self);
     $self->_transfer_display_settings();
     return $self->{display}->display();
 }
@@ -496,10 +512,10 @@ sub _transfer_display_settings {
            -post_nondb_columns
            -pre_nondb_columns
            -unsortable_columns
+           -grid_columns
           /) {
         if (defined $self->{$var}) {
             $self->{display}->{$var} = $self->{$var};
-            delete $self->{$var};
         }
     }
 }
@@ -551,6 +567,6 @@ or try the following URL which references a copy of it (as of June 8, 2003):
 
 =head1 LAST MODIFIED
 
-Apr 9, 2008
+Apr 16, 2008
 
 =cut

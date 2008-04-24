@@ -11,21 +11,30 @@ use Data::Dumper;
 sub set_up
 {
     my $self = shift;
-    #create test database schema and insert data ...
-    $self->{-dbh} = DBI->connect('DBI:mysql:database=test;host=localhost', 'test', undef);
-    map { $self->{-dbh}->do($_); } _db_schemas();
-
-    $self->_insert_test_data($self->{-dbh});
-
-    my $q = CGI->new;
-    $self->{ws} = CGI::Widget::DBI::Search->new(q => $q, -dbh => $self->{-dbh});
+    $self->init_db();
+    $self->init_test_object();
 }
 
 sub tear_down
 {
     my $self = shift;
-#    map { $self->{ws}->{-dbh}->do("drop table $_"); } qw/widgets tools widget_tools/;
-    $self->{ws}->{-dbh}->disconnect();
+    $self->{_test_obj}->{-dbh}->disconnect();
+}
+
+sub init_db {
+    my $self = shift;
+    # create test database schema and insert data ...
+    $self->{-dbh} = DBI->connect('DBI:mysql:database=test;host=localhost', 'test', undef);
+    map { $self->{-dbh}->do($_); } $self->_db_schemas();
+
+    $self->_insert_test_data($self->{-dbh});
+}
+
+sub init_test_object {
+    my $self = shift;
+    my $q = CGI->new;
+    $self->{_test_obj} = $self->{ws} =
+      CGI::Widget::DBI::Search->new(q => $q, -dbh => $self->{-dbh});
 }
 
 sub _db_schemas {
@@ -108,7 +117,7 @@ sub _insert_test_data {
 sub assert_table_contents_equal {
     my ($self, $table, $columns, $row_contents, $verbose) = @_;
     die "no DBI handle set: set -dbh variable in your test object"
-      unless ref $self->{-dbh} eq 'DBI::db';
+      unless ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db');
     my $sth = $self->{-dbh}->prepare_cached("SELECT ".join(',', @$columns)." FROM $table");
     $sth->execute();
     my $table_contents = $sth->fetchall_arrayref();
@@ -122,6 +131,28 @@ sub assert_table_contents_equal {
     $self->assert_deep_equals(
         $row_contents,
         $table_contents,
+    );
+}
+
+sub assert_display_contains {
+    my ($self, @rows) = @_;
+    my $ws = $self->{_test_obj};
+    local $Error::Depth = 1;
+    my $regex = join('.*', map {defined $_ && $_ ne '' ? '\b'.$_.'\b' : ()} map {@$_} @rows);
+    $self->assert_matches(
+        qr/$regex/s,
+        $ws->display_results,
+    );
+}
+
+sub assert_display_does_not_contain {
+    my ($self, @rows) = @_;
+    my $ws = $self->{_test_obj};
+    local $Error::Depth = 1;
+    my $regex = join('.*', map {defined $_ && $_ ne '' ? '\b'.$_.'\b' : ()} map {@$_} @rows);
+    $self->assert_does_not_match(
+        qr/$regex/s,
+        $ws->display_results,
     );
 }
 

@@ -4,7 +4,7 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.22';
+$CGI::Widget::DBI::Search::VERSION = '0.23';
 
 use DBI;
 use CGI::Widget::DBI::Search::Display::Table;
@@ -308,7 +308,7 @@ sub search {
     # method call syntax checks
     unless ($self->{-sql_table}
 	    && ref $self->{-sql_retrieve_columns} eq "ARRAY"
-            && (ref $self->{-dbh} eq "DBI::db"
+            && (ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
                 || $self->{-dbi_connect_dsn}
                   && defined $self->{-dbi_user}
                   && defined $self->{-dbi_pass})) {
@@ -359,8 +359,8 @@ sub search {
         if @orderby;
 
     eval {
-	my $should_disconnect = !(ref $self->{-dbh} eq "DBI::db");
-	my $dbh = $self->{-dbh} = ref $self->{-dbh} eq "DBI::db"
+	my $should_disconnect = !(ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db'));
+	my $dbh = $self->{-dbh} = ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
 	  ? $self->{-dbh}
 	  : DBI->connect($self->{-dbi_connect_dsn}, $self->{-dbi_user},
 			 $self->{-dbi_pass}, {'RaiseError' => 1});
@@ -524,49 +524,33 @@ sub _transfer_display_settings {
 1;
 __END__
 
+=back
+
 =head1 AUTHOR
 
 Adi Fairbank <adi@adiraj.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2004-2008 - Adi Fairbank
-
-This software, the CGI::Widget::DBI::Search Perl module,
-is copyright Adi Fairbank.
+Copyright (C) 2004-2008  Adi Fairbank
 
 =head1 COPYLEFT (LICENSE)
 
-This module is free software; you can redistribute it and/or modify it
-under the terms of either:
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-  a) the GNU General Public License as published by the Free Software
-     Foundation; either version 1, or (at your option) any later version,
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
 
-  or
-
-  b) the "Artistic License" which comes with this module.
-
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See either the GNU General Public
-License or the Artistic License for more details.
-
-You should have received a copy of the Artistic License with this module,
-in the file ARTISTIC; if not, the following URL references a copy of it
-(as of June 8, 2003):
-
-  http://www.perl.com/language/misc/Artistic.html
-
-You should have received a copy of the GNU General Public License along
-with this program, in the file GPL; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA;
-or try the following URL which references a copy of it (as of June 8, 2003):
-
-  http://www.fsf.org/licenses/gpl.html
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 LAST MODIFIED
 
-Apr 16, 2008
+Apr 18, 2008
 
 =cut

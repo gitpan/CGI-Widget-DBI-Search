@@ -8,6 +8,15 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.23 - Apr 24, 2008
+
+Minor fixes to support use with Apache::DBI
+
+Refactor unit testing classes for simplicity, and to support subclassing by
+upcoming DBI Browse widget
+
+Update license to Affero General Public License v3
+
 =item 0.22 - Apr 17, 2008
 
 API change: -columndata_closures is now only expected to return a table cell

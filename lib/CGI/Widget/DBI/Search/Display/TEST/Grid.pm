@@ -1,7 +1,7 @@
 package CGI::Widget::DBI::Search::Display::TEST::Grid;
 
 use strict;
-use base qw/ CGI::Widget::DBI::Search::Display::TEST::TestCase /;
+use base qw/ CGI::Widget::DBI::TEST::Search /;
 
 
 sub set_up
@@ -11,6 +11,8 @@ sub set_up
     $self->{ws}->{-display_mode} = 'grid';
     $self->{ws}->{-grid_columns} = 2;
 }
+
+sub test_display_results {}
 
 sub test_search__basic
 {

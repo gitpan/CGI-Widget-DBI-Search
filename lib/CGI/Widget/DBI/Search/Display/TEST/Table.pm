@@ -1,8 +1,10 @@
 package CGI::Widget::DBI::Search::Display::TEST::Table;
 
 use strict;
-use base qw/ CGI::Widget::DBI::Search::Display::TEST::TestCase /;
+use base qw/ CGI::Widget::DBI::TEST::Search /;
 
+
+sub test_display_results {}
 
 sub test_search__basic
 {

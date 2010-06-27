@@ -10,7 +10,15 @@ CGI::Widget::DBI::Search::Display::Table - HTML table display class for Search w
 
 =head1 SYNOPSIS
 
-  This class is not intended to be used directly
+  my $ws = CGI::Widget::DBI::Search->new(q => CGI->new);
+  ...
+  $ws->{-display_class} = 'CGI::Widget::DBI::Search::Display::Table';
+
+  # or instead, simply:
+  $ws->{-display_mode} = 'table';
+
+  # note: this is default behavior for the search widget, so this is all just for
+  # informational purposes, e.g. to write your own display class
 
 =head1 DESCRIPTION
 
@@ -40,27 +48,14 @@ Builds data in object variables:
 
 sub render_dataset {
     my ($self) = @_;
-    my $q = $self->{q};
     $self->{'dataset_rows_html'} = [];
 
     $self->render_column_headers();
 
-    # iterate over most recently returned 'results', which should be a
-    # (possibly blessed) hashref
-    my $bgcolor;
+    # iterate over most recently returned 'results', which should be a (possibly blessed) hashref
     foreach my $row (@{$self->{s}->{'results'}}) {
-	# toggle color
-	$bgcolor = (($bgcolor||'') eq $self->{s}->TABLE_BGCOLOR2()
-		  ? $self->{s}->TABLE_BGCOLOR1()
-		  : $self->{s}->TABLE_BGCOLOR2());
-
-	# build a table row
-	push(@{ $self->{'dataset_rows_html'} }, join '', map {
-            my $align = $self->{-numeric_columns}->{$_}
-              || $self->{-currency_columns}->{$_} ? 'right' : 'left';
-            $q->td({-bgcolor => $bgcolor, -align => $align},
-                   $self->display_record($row, $_));
-	} @{ $self->{'header_columns'} } );
+        # build a table row
+        push(@{ $self->{'dataset_rows_html'} }, $self->display_row($row));
     }
 }
 
@@ -74,30 +69,35 @@ links) for the most recent search.
 sub render_column_headers {
     my ($self) = @_;
     my $q = $self->{q};
-    $self->{'header_html'} = '';
+    my $header_td_html = '';
+    my %sortable_cols = %{ $self->{-sortable_columns} || {} };
 
     # build displayed column headers along with sort links and direction arrow
     foreach my $col (@{ $self->{'header_columns'} }) {
-        if ($self->{-unsortable_columns}->{$col}) {
-            $self->{'header_html'} .=
-              $q->td({-bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
-                      ($self->{-currency_columns}->{$col} || $self->{-numeric_columns}->{$col}
-                       ? (-align=>'right') : ())},
+        my $align = $self->{-column_align}->{$col} ||
+          ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : undef);
+
+        if ($self->{-unsortable_columns}->{$col} || (%sortable_cols && ! $sortable_cols{$col}) ) {
+            $header_td_html .=
+              $q->td({-class => $self->{s}->{-css_table_unsortable_header_class} || 'searchWidgetTableUnsortableHeader',
+                      -bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
+                      ($align ? (-align => $align) : ())},
                      $self->{-display_columns}->{$col});
         } else {
             my $sortby = $self->{s}->{'sortby'} && $col eq $self->{s}->{'sortby'};
-            $self->{'header_html'} .= $q->td
-              ({-bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
-                ($self->{-currency_columns}->{$col} || $self->{-numeric_columns}->{$col}
-                 ? (-align=>'right') : ())},
+            $header_td_html .= $q->td
+              ({-class => $self->{s}->{-css_table_header_class} || 'searchWidgetTableHeader',
+                -bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
+                ($align ? (-align => $align) : ())},
                ($sortby ? "<B>" : "") .
                  $q->a({-href => $self->sortby_column_uri($col)},
                        $self->{-display_columns}->{$col}) . " " .
                          ($sortby
-                          ? ($self->{s}->{'sort_reverse'} ? '\\/' :'/\\')."</B>"
+                          ? ($self->{s}->{'sort_reverse'}->{$col} ? '\\/' :'/\\')."</B>"
                           : ''));
         }
     }
+    $self->{'header_html'} = $q->Tr({-class => $self->{s}->{-css_table_row_class} || 'searchWidgetTableRow'}, $header_td_html);
 }
 
 =item display_dataset()
@@ -108,86 +108,64 @@ Returns HTML rendering of current page in search results, along with navigation 
 
 sub display_dataset {
     my ($self) = @_;
-    my $q = $self->{q};
     return (
         ($self->{-optional_header}||'') .
+        $self->{s}->extra_vars_for_form() .
         $self->display_pager_links(1, 0) .
-        $q->table({-cellpadding => $self->{-display_table_padding} || 2, -width => '96%'},
-                  $q->Tr([ $self->{'header_html'}, @{ $self->{'dataset_rows_html'} } ])) .
+        $self->{q}->table({-class => $self->{s}->{-css_table_class} || 'searchWidgetTableTable', -width => '96%'},
+                          $self->{'header_html'}, join('', @{ $self->{'dataset_rows_html'} })) .
         $self->display_pager_links(0, 1) .
         ($self->{-optional_footer}||'')
     );
 }
 
-=item display_pager_links($showtotal, $showpages)
+=item display_row( $row )
 
-Returns an HTML table containing navigation links for first, previous, next,
-and last pages of result set, and optionally, number and range of results being
-displayed, and/or navigable list of pages in the dataset.
-
-This method is called from display() and should be treated as a protected method.
-
-parameters:
-  $showtotal	boolean to toggle whether to show total number
-                of results along with range on current page
-  $showpages    boolean to toggle whether to show page range links
-                for easier navigation in large datasets
-                (has no effect unless -show_total_numresults setting is set)
+Returns HTML rendering of given $row in dataset: '<tr> ... </tr>'.
+Calls display_field($row, $header_col) for each header column.
 
 =cut
 
-sub display_pager_links {
-    my ($self, $showtotal, $showpages) = @_;
-    my $q = $self->{q};
-    my $startat = $self->{s}->{'page'};
-    my $pagetotal = scalar( @{$self->{s}->{'results'}} );
-    my $maxpagesize = $self->{s}->{-max_results_per_page};
-    my $searchtotal = $self->{s}->{'numresults'};
-    my $middle_column = $showtotal || $showpages && $searchtotal;
+sub display_row {
+    my ($self, $row) = @_;
+    # toggle color
+    $self->{'_row_bgcolor'} = ($self->{'_row_bgcolor'}||'') eq $self->{s}->TABLE_BGCOLOR2()
+      ? $self->{s}->TABLE_BGCOLOR1()
+      : $self->{s}->TABLE_BGCOLOR2();
 
-    return
-      ($q->table
-       ({-width => '96%'}, $q->Tr
-	($q->td({-align => 'left',
-		 -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 ($startat > 0
-			  ? $q->b(($self->first_page_uri()
-				   ? $q->a({-href => $self->first_page_uri()},
-					   "|&lt;First").'&nbsp;&nbsp;&nbsp;'
-				   : '').
-				  $q->a({-href => $self->prev_page_uri()}, "&lt;Previous"))
-			  : "|At first page"))) .
-	 ($middle_column
-	  ? $q->td({-align => 'center', -width => '40%', -nowrap => 1},
-                   ($showtotal
-                    ? "<B>$pagetotal</B> result".
-                      ($pagetotal == 1 ? '' : 's')." displayed".
-                      ($searchtotal
-                       ? (': <B>'.($startat*$maxpagesize + 1).' - '.
-                          ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
-                          $searchtotal.'</B>')
-                       : '').$q->br
-                    : '') .
-                    ($showpages && $searchtotal
-                     ? $q->font({-size => '-1'},
-                                "Skip to page: ".$self->display_page_range_links($startat))
-                     : '')
-                  )
-	  : '') .
-	 $q->td({-align => 'right', -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 (defined $maxpagesize &&
-			  ((defined $searchtotal
-			    && $startat != int(($searchtotal-1)/$maxpagesize))
-			   || (!$searchtotal && $pagetotal >= $maxpagesize))
-			  ? $q->b($q->a({-href => $self->next_page_uri()}, "Next&gt;").
-				  ($self->last_page_uri()
-				   ? '&nbsp;&nbsp;&nbsp;'.$q->a({-href => $self->last_page_uri()},"Last&gt;|")
-				   : ''))
-			  : "At last page|"))))
-       ));
+    return $self->{q}->Tr(
+        {-class => $self->{s}->{-css_table_row_class} || 'searchWidgetTableRow',
+         -style => 'background-color: '.$self->{'_row_bgcolor'}.';' },
+        join '', map { $self->display_field($row, $_) } @{ $self->{'header_columns'} }
+    );
+}
+
+=item display_field( $row, $col )
+
+Returns HTML rendering of given $row / $col in dataset: '<td> ... </td>'.
+Calls display_record($row, $col), inherited from L<CGI::Widget::DBI::Search::AbstractDisplay> for the cell contents.
+
+=cut
+
+sub display_field {
+    my ($self, $row, $col) = @_;
+
+    my $align = $self->{-column_align}->{$col} ||
+      ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : 'left');
+    return $self->{q}->td(
+        {-class => $self->{s}->{-css_table_cell_class} || 'searchWidgetTableCell', -align => $align},
+        $self->display_record($row, $col)
+    );
 }
 
 
 1;
+__END__
+
+=back
+
+=head1 SEE ALSO
+
+L<CGI::Widget::DBI::Search::AbstractDisplay>
+
+=cut

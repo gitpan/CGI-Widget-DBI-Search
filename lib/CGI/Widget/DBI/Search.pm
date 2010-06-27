@@ -4,11 +4,12 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.23';
+$CGI::Widget::DBI::Search::VERSION = '0.26';
 
 use DBI;
 use CGI::Widget::DBI::Search::Display::Table;
 use CGI::Widget::DBI::Search::Display::Grid;
+use URI::Escape;
 
 # --------------------- USER CUSTOMIZABLE VARIABLES ------------------------
 
@@ -37,14 +38,14 @@ use constant TABLE_BGCOLOR2       => '#ffffff';
 use constant VARS_TO_KEEP =>
   {# vars beginning with '-' are object config vars, set by programmer
    -sql_table => 1, -sql_table_columns => 1, -sql_retrieve_columns => 1,
-   -pre_nondb_columns => 1, -post_nondb_columns => 1,
-   -action_uri => 1, -display_table_padding => 1,
-   -display_columns => 1, -unsortable_columns => 1,
-   -numeric_columns => 1, -currency_columns => 1, -default_orderby_columns => 1,
-   -optional_header => 1, -optional_footer => 1, -href_extra_vars => 1,
+   -pre_nondb_columns => 1, -post_nondb_columns => 1, -action_uri => 1,
+   -display_columns => 1, -unsortable_columns => 1, -sortable_columns => 1, -default_orderby_columns => 1,
+   -column_align => 1, -numeric_columns => 1, -currency_columns => 1,
+   -optional_header => 1, -optional_footer => 1, -href_extra_vars => 1, -href_extra_vars_qs => 1,
    -where_clause => 1, -bind_params => 1, -opt_precols_sql => 1,
    -max_results_per_page => 1, -page_range_nav_limit => 1, -show_total_numresults => 1,
-   -no_persistent_object => 1,
+   -no_persistent_object => 1, -display_mode => 1, -display_class => 1,
+   -grid_columns => 1, -browse_mode => 1,
    # vars not beginning with '-' are instance vars, set by methods in class
    results => 1, numresults => 1, page => 1, lastpage => 1, sortby  => 1,
    page_sortby => 1, reverse_pagesort => 1,
@@ -79,7 +80,7 @@ CGI::Widget::DBI::Search - Database search widget
   $ws->{-sql_table} = 'table1 t1 inner join table2 t2 using (key_col)';
 
   # optional WHERE clause
-  $ws->{-where_clause} = 'WHERE t1.filter = ? OR t2.filter != ?';
+  $ws->{-where_clause} = 't1.filter = ? OR t2.filter != ?';
   # bind params needed for WHERE clause
   $ws->{-bind_params} = [ $filter, $inverse_filter ];
 
@@ -92,8 +93,9 @@ CGI::Widget::DBI::Search - Database search widget
 
   $ws->{-numeric_columns} = { id => 1 };
   $ws->{-currency_columns} = { total_price => 1 };
+  $ws->{-column_align} = { name => 'center' };
 
-  $ws->{-show_total_numresults} = 1;
+  #$ws->{-show_total_numresults} = 1; # set by default
 
   # execute database search
   $ws->search();
@@ -116,12 +118,12 @@ and multi-column, sortable result set displayed page-by-page
 
 =head1 CONSTRUCTOR
 
+=over 4
+
 =item new(@config_options)
 
 Creates and initializes a new CGI::Widget::DBI::Search object.
 Possible configuration options:
-
-=over 4
 
 =item Database connection options
 
@@ -136,6 +138,13 @@ Possible configuration options:
   -sql_table            => Database table(s) to query,
   -sql_table_columns    => [ARRAY] List of all columns in sql_table,
   -sql_retrieve_columns => [ARRAY] List of columns for retrieval,
+  -sql_search_columns   => [ARRAY] (optional) List of columns to retrieve in
+                           initial search, results to be saved to a temporary table.
+                           (has no effect without -sql_join_for_dataset)
+  -sql_join_for_dataset => (optional) SQL join clause which will be appended -
+                           in the FROM clause - to the temporary table generated
+                           with columns from -sql_search_columns.
+                           (has no effect without -sql_search_columns)
   -opt_precols_sql      => Optional SQL code to insert between 'SELECT' and
                            columns to retrieve (-sql_retrieve_columns).
                            This is commonly something like 'DISTINCT',
@@ -157,6 +166,9 @@ Possible configuration options:
                            It should be a hash reference with a key for each
                            column returned in the search, and values with the
                            search field values.
+  -dry_run              => Do a dry run: just build SQL without actually running
+                           it and building 'results' array.  SQL statement that
+                           would have been executed is in '_sql' object variable
 
 
 =item Search result display options
@@ -174,15 +186,18 @@ the search logic (SQL query executed).
 The following settings only affect display of search results, not the
 search logic.
 
-  -display_table_padding  => Size of HTML display table cellpadding attribute,
   -display_columns        => {HASH} Associative array holding column names as
                              keys, and labels for display table as values,
+  -column_align           => {HASH} Keyed on column name to specify the table cell
+                             html align attribute when using 'table' -display_mode
   -numeric_columns        => {HASH} Columns of numeric type should have a
                              true value in this hash,
   -currency_columns       => {HASH} Columns of monetary value should have a
                              true value in this hash,
   -unsortable_columns     => {HASH} Columns which the user should not be able
-                             to sort should have a true value in this hash,
+                             to sort by should have a true value in this hash,
+  -sortable_columns       => {HASH} Columns which the user should only be able
+                             to sort by should have a true value in this hash,
   -pre_nondb_columns      => [ARRAY] Columns to show left of database columns
                              in display table,
   -post_nondb_columns     => [ARRAY] Columns to show right of database columns
@@ -195,13 +210,18 @@ search logic.
                              result display table,
   -optional_footer        => Optional HTML footer to display just below search
                              result display table,
-  -href_extra_vars        => Extra CGI params to append to column sorting and
+  -href_extra_vars        => {HASH} Extra CGI params to append to column sorting and
                              navigation links in search result display table.
-                             May be either a HASHREF or a literal string
-                             containing key/values to append.  If a key in the
-                             HASHREF has an undef value, will take the value
-                             from an existing CGI param on request named the
+                             If a key in the HASHREF has an undef value, will take the
+                             value from an existing CGI param on request named the
                              same as key.
+  -href_extra_vars_qs     => Extra CGI params (in query string form) to append to column sorting.
+  -form_extra_vars        => {HASH} Extra CGI params to include in HTML as hidden
+                             input fields.  Note that the search widget itself doesn't
+                             generate an HTML form, so if the search output is not
+                             wrapped in an HTML form, these hidden inputs will be ignored
+                             by browsers.  The HASHREF has the same syntax as -href_extra_vars,
+                             including the meaning of keys with undef values.
   -action_uri             => HTTP URI of script this is running under
                              (default: SCRIPT_NAME environment variable),
   -page_range_nav_limit   => Maximum number of pages to allow user to navigate to
@@ -211,7 +231,7 @@ search logic.
                              code reference for each column which should be
                              passed through before displaying in result table.
                              Each closure will be passed 3 arguments:
-                              $searchobj (this CGI::Widget::DBI::Search object),
+                              $searchdispobj (the -display_class object),
                               $row (the current row from the result set)
                               $color (the current background color of this row)
                              and is (currently) expected to return an HTML table
@@ -224,6 +244,8 @@ search logic.
                              (default: CGI::Widget::DBI::Search::Display::Table)
   -grid_columns           => Maximum number of columns to render, if displaying
                              as grid
+  -browse_mode            => If true, hides sorting and paging options from search
+                             result display.  Used by CGI::Widget::DBI::Browse.
 
 =item Universal options
 
@@ -233,6 +255,17 @@ search logic.
                              under a persistence framework, and enable features
                              necessary for smooth operation without persistence
                              (default: true)
+
+=item CSS / Skinning options
+
+  -css_grid_class        => (default: searchWidgetGridTable)
+  -css_grid_cell_class   => (default: searchWidgetGridCell)
+
+  -css_table_class        => (default: searchWidgetTableTable)
+  -css_table_row_class    => (default: searchWidgetTableRow)
+  -css_table_cell_class   => (default: searchWidgetTableCell)
+  -css_table_header_class => (default: searchWidgetTableHeader)
+  -css_table_unsortable_header_class => (default: searchWidgetTableUnsortableHeader)
 
 =back
 
@@ -263,30 +296,63 @@ sub _set_defaults {
       unless defined $self->{-no_persistent_object};
 }
 
+sub _find_sql_column_in_sql_columns {
+    my ($self, $alias_or_sql_column, $columns) = @_;
+    return (grep(
+        $_ eq $alias_or_sql_column || m/(?:as\s+|\.)$alias_or_sql_column\Z/i,
+        @$columns,
+    ))[0];
+}
+
+sub _find_sql_column_in_sql_select_columns {
+    my ($self, $alias_or_sql_column) = @_;
+    return _find_sql_column_in_sql_columns($self, $alias_or_sql_column, [$self->_columns_for_sql()]);
+}
+
+sub _find_sql_column_in_sql_retrieve_columns {
+    my ($self, $alias_or_sql_column) = @_;
+    return _find_sql_column_in_sql_columns($self, $alias_or_sql_column, $self->{-sql_retrieve_columns});
+}
+
+sub _find_sql_column_in_sql_search_columns {
+    my ($self, $alias_or_sql_column) = @_;
+    return _find_sql_column_in_sql_columns($self, $alias_or_sql_column, $self->{-sql_search_columns});
+}
+
+sub _check_call_syntax {
+    my ($self) = @_;
+    # method call syntax checks
+    unless ($self->{-sql_table}
+            && ref $self->{-sql_retrieve_columns} eq "ARRAY"
+            && (ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
+                || $self->{-dbi_connect_dsn}
+                  && defined $self->{-dbi_user}
+                  && defined $self->{-dbi_pass})) {
+        $self->log_error("instance variables '-sql_table' (SCALAR), '-sql_retrieve_columns' (ARRAY); '-dbh' or '-dbi_connect_dsn' and '-dbi_user' and '-dbi_pass' (SCALARs) are required");
+        return undef;
+    }
+    return 1;
+}
+
+sub _connect_to_db {
+    my ($self) = @_;
+    return 2 if ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db');
+    eval {
+        $self->{-dbh} = DBI->connect($self->{-dbi_connect_dsn}, $self->{-dbi_user},
+                                     $self->{-dbi_pass}, {'RaiseError' => 1});
+    };
+    if ($@) {
+        $self->log_error($@);
+        return undef;
+    }
+    return 1;
+}
 
 =back
 
 =head1 METHODS
 
 =over 4
-
-=item default_fetchrow_closure()
-
-This is the default -fetchrow_closure that will be called for each row returned
-by a search.  It can be called by an overridden -fetchrow_closure to selectively
-modify desired fields.
-
-=cut
-
-sub default_fetchrow_closure {
-    my $self = shift;
-    return { map {
-        my $col = $self->{-sql_retrieve_columns}->[$_];
-        $col =~ s/.*[. ](\w+)$/$1/; # strip off table name or pre-alias column name
-        $col => $_[$_];
-    } 0 .. $#_ };
-};
-
 
 =item search([ $where_clause, $bind_params, $clobber ])
 
@@ -297,109 +363,171 @@ Optional parameters $where_clause and $bind_params will override object
 variables -where_clause and -bind_params.  If $clobber is true, search results
 from a previous execution will be deleted before running new search.
 
+After this method executes, various internal object variables will be set, to
+indicate the state of the search.  Here are some useful ones:
+
+(if -show_total_numresults is true)
+  page        => current page in result set (0 indexed)
+  lastpage    => last page in result set (0 indexed)
+
 =cut
 
 sub search {
     my ($self, $where_clause, $bind_params, $clobber) = @_;
     my $q = $self->{q};
 
-    $self->_set_defaults;
-
-    # method call syntax checks
-    unless ($self->{-sql_table}
-	    && ref $self->{-sql_retrieve_columns} eq "ARRAY"
-            && (ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
-                || $self->{-dbi_connect_dsn}
-                  && defined $self->{-dbi_user}
-                  && defined $self->{-dbi_pass})) {
-	$self->log_error("search", "instance variables '-sql_table' (SCALAR), '-sql_retrieve_columns' (ARRAY); '-dbh' or '-dbi_connect_dsn' and '-dbi_user' and '-dbi_pass' (SCALARs) are required");
-	return undef;
-    }
+    $self->_set_defaults();
+    return undef unless $self->_check_call_syntax();
 
     # clobber old search results if desired
     if ($clobber) {
-	delete $self->{-where_clause};
-	delete $self->{-bind_params};
-	delete $self->{'results'};
+        delete $self->{-where_clause};
+        delete $self->{-bind_params};
+        delete $self->{'results'};
     }
 
     # handle paging logic
     my $old_page = $self->{'page'};
-    $self->{'page'} ||= 0;
     $self->{'page'} = $q->param('search_startat')
       if defined $q->param('search_startat');
+    $self->{'page'} ||= 0;
 
     # return cached results if page has not changed
     if (defined $old_page && $self->{'page'} == $old_page && ref $self->{'results'} eq "ARRAY") {
-	$self->warn("search", "no page change, using cached results");
-	return $self;
+        $self->warn("no page change, using cached results");
+        return $self;
     }
 
     # read sortby column from cgi
     $self->{'sortby'} = $q->param('sortby') if $q->param('sortby');
-    $self->{'sort_reverse'} = $q->param('sort_reverse') if $q->param('sort_reverse');
+    $self->{'sort_reverse'} ||= {};
+    $self->{'sort_reverse'}->{ $self->{'sortby'} } = $q->param('sort_reverse')
+      if defined $q->param('sort_reverse');
 
     $self->{-where_clause} = $where_clause if $where_clause;
+    $self->{-where_clause} =~ s/^\s*where//i if $self->{-where_clause};
     $self->{-bind_params} = $bind_params if ref $bind_params eq "ARRAY";
     $self->{-max_results_per_page} ||= MAX_PER_PAGE;
     $self->{-page_range_nav_limit} ||= PAGE_RANGE_NAV_LIMIT;
     $self->{-limit_clause} =
       ('LIMIT '.($self->{-max_results_per_page}*$self->{'page'}).','.
        $self->{-max_results_per_page});
+    $self->{-opt_precols_sql} ||= '';
+    my $orig_opt_precols_sql = $self->{-opt_precols_sql};
+    $self->{-opt_precols_sql} .= ' SQL_CALC_FOUND_ROWS '
+      if $self->{-show_total_numresults} && $self->{-opt_precols_sql} !~ m/SQL_CALC_FOUND_ROWS/i;
 
     my @orderby;
     if (ref $self->{-default_orderby_columns} eq 'ARRAY') {
         @orderby = @{ $self->{-default_orderby_columns} };
     }
     if ($self->{'sortby'}) {
-        @orderby = ($self->{'sortby'}, grep($_ ne $self->{'sortby'}, @orderby));
+        if (_find_sql_column_in_sql_select_columns($self, $self->{'sortby'})) {
+            @orderby = ($self->{'sortby'}, grep($_ ne $self->{'sortby'}, @orderby));
+        }
     }
     $self->{-orderby_clause} =
-      'ORDER BY '.join(',', map {$_.($self->{'sort_reverse'} ? ' DESC' : '')} @orderby)
+      'ORDER BY '.join(',', map {$_.($self->{'sort_reverse'}->{$_} ? ' DESC' : '')} @orderby)
         if @orderby;
+    # TODO: we should support a custom -orderby_clause and not just clobber it each time
+
+
+    $self->_build_sql();
+    return $self if $self->{-dry_run};
+
+    my $conn_code = $self->_connect_to_db();
+    return undef if ! $conn_code;
+
+    my $should_disconnect = $conn_code == 1;
+
+    if ($self->{-sql_search_columns} && $self->{-sql_join_for_dataset}) {
+        eval {
+            # tmp_search_results may already exist even in production code, due to use of Apache::DBI
+            $self->{-dbh}->do('DROP TABLE IF EXISTS tmp_search_results');
+            my @search_sql = (<<"SQL1",<<'SQL2',<<"SQL3");
+CREATE TEMPORARY TABLE tmp_search_results AS
+@{[ $self->{'_sql_no_limit'} ]} LIMIT 0
+SQL1
+ALTER TABLE tmp_search_results ADD row_index INT AUTO_INCREMENT PRIMARY KEY FIRST
+SQL2
+INSERT INTO tmp_search_results (
+  @{[ join(',', map { $self->extract_alias_from_sql_column($_) } @{ $self->{-sql_search_columns} }) ]}
+)
+@{[ $self->{'_sql'} ]}
+SQL3
+            my @bind_params = @{ $self->{-bind_params} || [] };
+            $self->warn("SQL search statement: ".join(";\n", @search_sql)
+                          ."\nbind params: ".join(', ', @bind_params));
+            $self->{-dbh}->do(shift @search_sql, undef, @bind_params);
+            $self->{-dbh}->do(shift @search_sql);
+            $self->{-dbh}->do(shift @search_sql, undef, @bind_params);
+            $self->get_num_results();
+        };
+        if ($@) {
+            $self->log_error($@);
+            return undef;
+        }
+        $self->{-sql_search_columns} = undef;
+        $self->{-sql_table} = "tmp_search_results ".$self->{-sql_join_for_dataset};
+        $self->{-where_clause} = undef;
+        $self->{-bind_params} = undef;
+        $self->{-orderby_clause} = 'ORDER BY row_index';
+        $self->{-opt_precols_sql} = $orig_opt_precols_sql;
+        $self->{-limit_clause} = undef;
+        $self->_build_sql();
+    }
 
     eval {
-	my $should_disconnect = !(ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db'));
-	my $dbh = $self->{-dbh} = ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
-	  ? $self->{-dbh}
-	  : DBI->connect($self->{-dbi_connect_dsn}, $self->{-dbi_user},
-			 $self->{-dbi_pass}, {'RaiseError' => 1});
+        my $sth = $self->{-dbh}->prepare_cached( $self->{'_sql'} );
 
-	my $sql = ("SELECT ".($self->{-opt_precols_sql}||'')." ".
-		   join(',', @{$self->{-sql_retrieve_columns}}).
-		   " FROM ".$self->{-sql_table}." ".($self->{-where_clause}||'')." ".
-		   ($self->{-orderby_clause}||'')." ".($self->{-limit_clause}||''));
-	my $sth = $dbh->prepare_cached($sql);
+        my @bind_params = @{ $self->{-bind_params} || [] };
+        $self->warn("SQL statement: $self->{'_sql'}; bind params: ".join(', ', @bind_params));
+        $sth->execute(@bind_params);
 
-	$sth->execute(@{$self->{-bind_params}});
-	$self->warn("search", "SQL statement executed: $sql; bind params: ".join(', ', @{$self->{-bind_params}}));
+        $self->{'results'} = [];
+        if (ref $self->{-fetchrow_closure} eq "CODE") {
+            my @row_data;
+            $sth->bind_columns
+              (map { \$row_data[$_] } 0..$#{$self->{-sql_retrieve_columns}});
 
-	my @row_data;
-	$sth->bind_columns
-	  (map { \$row_data[$_] } 0..$#{$self->{-sql_retrieve_columns}});
+            while ($sth->fetchrow_arrayref) {
+                push(@{$self->{'results'}}, $self->{-fetchrow_closure}->($self, @row_data));
+            }
+        } else {
+            $self->{'results'} = $sth->fetchall_arrayref({});
+        }
 
-	$self->{'results'} = [];
-	my $closure =
-	  (ref $self->{-fetchrow_closure} eq "CODE"
-	   ? $self->{-fetchrow_closure}
-	   : \&default_fetchrow_closure);
-	while ($sth->fetchrow_arrayref) {
-	    push(@{$self->{'results'}}, $closure->($self, @row_data));
-	}
+        $sth->finish();
 
-	$sth->finish;
+        $self->get_num_results();
 
-	$self->get_num_results;
-
-	$dbh->disconnect if $should_disconnect;
+        $self->{-dbh}->disconnect() if $should_disconnect;
     };
     if ($@) {
-	$self->log_error("search", $@);
-	return undef;
+        $self->log_error("SQL statement: $self->{'_sql'}; bind params: ".join(', ', @{ $self->{-bind_params} || [] }));
+        $self->log_error($@);
+        return undef;
     }
 
     #$self->pagesort_results($self->{'page_sortby'}) if $self->{'page_sortby'};
     return $self;
+}
+
+sub _build_sql {
+    my ($self) = @_;
+    $self->{'_sql_no_limit'} = (
+        "SELECT ".$self->{-opt_precols_sql}." ".join(',', $self->_columns_for_sql()).
+        " FROM ".$self->{-sql_table}." ".
+        ($self->{-where_clause} ? "WHERE ".$self->{-where_clause} : '')." ".
+        ($self->{-orderby_clause}||'')
+    );
+    $self->{'_sql'} = $self->{'_sql_no_limit'}." ".($self->{-limit_clause}||'');
+}
+
+sub _columns_for_sql {
+    my ($self) = @_;
+    return $self->{-sql_search_columns} && $self->{-sql_join_for_dataset}
+      ? @{ $self->{-sql_search_columns} } : @{ $self->{-sql_retrieve_columns} };
 }
 
 =item get_num_results()
@@ -417,15 +545,10 @@ necessary to provide a last-page link to skip to the end of the search results.
 
 sub get_num_results {
     my ($self) = @_;
-    return unless $self->{-show_total_numresults};
+    return if ! $self->{-show_total_numresults} || defined $self->{'numresults'};
 
-    # read total number of results in search set
-    my $sth = $self->{-dbh}->prepare_cached
-      ("SELECT COUNT(1) FROM ".$self->{-sql_table}." ".($self->{-where_clause}||''));
-    $sth->execute(@{$self->{-bind_params}});
-    my $ary_ref = $sth->fetchrow_arrayref;
-    $sth->finish;
-    $self->{'numresults'} = $ary_ref->[0];
+    # read total number of results in search set (mysql only)
+    $self->{'numresults'} = @{ $self->{-dbh}->selectrow_arrayref('SELECT FOUND_ROWS()') || [] }[0];
     $self->{'lastpage'} = int(($self->{'numresults'} - 1) / $self->{-max_results_per_page});
     return $self->{'numresults'};
 }
@@ -462,6 +585,32 @@ based on sort column $col and boolean $reverse parameters.
 #     }
 # }
 
+=item append_where_clause($where_sql, [ $op ])
+
+Adds an SQL expression to the current -where_clause, if any.  Optional $op specifies the
+SQL operator to attach the expression with (default: AND).
+
+=item append_bind_params(@bind_params)
+
+Appends extra bind params to the end of the current list of -bind_params.
+
+=cut
+
+sub append_where_clause {
+    my ($self, $where_sql, $op) = @_;
+    return if ! $where_sql;
+    $op ||= 'AND';
+    $self->{-where_clause} = ($self->{-where_clause} ? '( '.$self->{-where_clause}." ) $op " : '') . "( $where_sql )";
+}
+
+sub append_bind_params {
+    my ($self, @bind_params) = @_;
+    return if ! @bind_params;
+    $self->{-bind_params} ||= [];
+    push(@{ $self->{-bind_params} }, @bind_params);
+}
+
+
 =item display_results([ $disp_cols ])
 
 Displays an HTML table of data values stored in object variable 'results' (retrieved
@@ -475,13 +624,13 @@ sub display_results {
     unless (ref $self->{'results'} eq "ARRAY" &&
 	    (ref $self->{-sql_table_columns} eq "ARRAY" ||
 	     ref $self->{-sql_retrieve_columns} eq "ARRAY")) {
-	$self->log_error("display_results", "instance variables '-sql_table_columns' or '-sql_retrieve_columns', and data resultset 'results' (ARRAYs) are required");
+	$self->log_error("instance variables '-sql_table_columns' or '-sql_retrieve_columns', and data resultset 'results' (ARRAYs) are required");
 	return undef;
     }
 
     $self->{-display_columns} = $disp_cols if ref $disp_cols eq "HASH";
 
-    $self->{-display_class} ||= $self->{-display_mode} && $self->{-display_mode} eq 'grid'
+    $self->{-display_class} ||= ($self->{-display_mode}||'') eq 'grid'
       ? 'CGI::Widget::DBI::Search::Display::Grid'
       : 'CGI::Widget::DBI::Search::Display::Table';
     $self->{display} = $self->{-display_class}->new($self);
@@ -503,8 +652,7 @@ sub _transfer_display_settings {
            -columndata_closures
            -currency_columns
            -display_columns
-           -display_table_padding
-           -href_extra_vars
+           -column_align
            -numeric_columns
            -optional_header
            -optional_footer
@@ -512,12 +660,74 @@ sub _transfer_display_settings {
            -post_nondb_columns
            -pre_nondb_columns
            -unsortable_columns
+           -sortable_columns
            -grid_columns
+           -browse_mode
           /) {
         if (defined $self->{$var}) {
             $self->{display}->{$var} = $self->{$var};
         }
     }
+}
+
+sub sql_search_column_for_alias {
+    my ($self, $alias_or_sql_column) = @_;
+    my $sql_col = _find_sql_column_in_sql_search_columns($self, $alias_or_sql_column);
+    ($sql_col) = ( $sql_col =~ m/\A(.+)\s+as\s+$alias_or_sql_column\Z/i )
+      if $sql_col && $sql_col =~ m/as\s+$alias_or_sql_column\Z/i;
+    return $sql_col || $alias_or_sql_column;
+}
+
+sub sql_column_for_alias {
+    my ($self, $alias_or_sql_column) = @_;
+    my $sql_col = _find_sql_column_in_sql_retrieve_columns($self, $alias_or_sql_column);
+    ($sql_col) = ( $sql_col =~ m/\A(.+)\s+as\s+$alias_or_sql_column\Z/i )
+      if $sql_col && $sql_col =~ m/as\s+$alias_or_sql_column\Z/i;
+    return $sql_col || $alias_or_sql_column;
+}
+
+sub sql_column_with_tbl_alias_for_alias {
+    my ($self, $alias_or_sql_column) = @_;
+    my $sql_col = _find_sql_column_in_sql_retrieve_columns($self, $alias_or_sql_column);
+    $sql_col =~ s/\s+as\s+$alias_or_sql_column\Z//i if $sql_col;
+    return $sql_col || $alias_or_sql_column;
+}
+
+sub full_sql_column_for_alias {
+    my ($self, $alias_or_sql_column) = @_;
+    my $sql_col = _find_sql_column_in_sql_retrieve_columns($self, $alias_or_sql_column);
+    return $sql_col || $alias_or_sql_column;
+}
+
+sub sql_column_for_full_sql_column_with_alias {
+    my ($self, $full_sql_column) = @_;
+    my $sql_col = _find_sql_column_in_sql_retrieve_columns($self, $full_sql_column);
+    ($sql_col) = ( $sql_col =~ m/\A(.+)\s+as\s+.+\Z/i ) if $sql_col;
+    return $sql_col || $full_sql_column;
+}
+
+sub extract_alias_from_sql_column {
+    my ($self, $full_sql_column) = @_;
+    my ($alias) = ( $full_sql_column =~ m/\s+as\s+(.+)\Z/i );
+    return $alias || $full_sql_column;
+}
+
+sub extra_vars_for_uri {
+    my ($self, $exclude_param_list) = @_;
+    return '' unless ref $self->{-href_extra_vars} eq 'HASH';
+    my %exclude = map {$_=>1} @{$exclude_param_list||[]};
+    return join('&', map {
+        $exclude{$_} ? ()
+          : uri_escape($_).'='.uri_escape(defined $self->{-href_extra_vars}->{$_}
+                                          ? $self->{-href_extra_vars}->{$_}
+                                          : $self->{q}->param($_) || '');
+    } keys %{$self->{-href_extra_vars}});
+}
+
+sub extra_vars_for_form {
+    my ($self) = @_;
+    return '' unless ref $self->{-form_extra_vars} eq 'HASH';
+    return join('', map { $self->{q}->hidden($_) } sort keys %{$self->{-form_extra_vars}});
 }
 
 
@@ -526,13 +736,24 @@ __END__
 
 =back
 
+=head1 SEE ALSO
+
+L<CGI::Widget::DBI::Search::Display::Grid>, L<CGI::Widget::DBI::Search::Display::Table>,
+L<CGI::Widget::DBI::Search::AbstractDisplay>
+
+=head1 BUGS
+
+Columns listed in -sql_retrieve_columns may not contain newline characters (\n).
+You can alias complex SQL functions though, which is exactly where you'd want to
+use a newline for readability.
+
 =head1 AUTHOR
 
 Adi Fairbank <adi@adiraj.org>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2004-2008  Adi Fairbank
+Copyright (C) 2004-2010  Adi Fairbank
 
 =head1 COPYLEFT (LICENSE)
 
@@ -551,6 +772,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 LAST MODIFIED
 
-Apr 18, 2008
+Jun 27, 2010
 
 =cut

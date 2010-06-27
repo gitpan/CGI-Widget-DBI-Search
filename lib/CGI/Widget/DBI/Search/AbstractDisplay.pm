@@ -19,11 +19,17 @@ CGI::Widget::DBI::Search::AbstractDisplay - Abstract Display class inherited by 
 
 =head1 SYNOPSIS
 
-  package My::SearchWidget::DisplayClass;
+  package My::SearchWidget::CustomDisplayClass;
 
   use base qw/ CGI::Widget::DBI::Search::AbstractDisplay /;
 
   # ... implement abstract methods
+
+
+  # then, when instantiating your search widget:
+  my $ws = CGI::Widget::DBI::Search->new(q => CGI->new);
+  ...
+  $ws->{-display_class} = 'My::SearchWidget::CustomDisplayClass';
 
 =head1 DESCRIPTION
 
@@ -82,14 +88,12 @@ sub _set_display_defaults {
     my ($self) = @_;
     $self->{'action_uri'} = $self->{-action_uri} || $ENV{SCRIPT_NAME} || '';
 
-    if (ref $self->{-href_extra_vars} eq "HASH") {
-        $self->{'href_extra_vars'} = join('&', map {
-            "$_=".(defined $self->{-href_extra_vars}->{$_}
-                   ? $self->{-href_extra_vars}->{$_}
-                   : $self->{q}->param($_));
-        } keys %{$self->{-href_extra_vars}});
-    } elsif ($self->{-href_extra_vars}) {
-        $self->{'href_extra_vars'} = $self->{-href_extra_vars};
+    $self->{'href_extra_vars'} = '';
+    if (ref $self->{s}->{-href_extra_vars} eq "HASH") {
+        $self->{'href_extra_vars'} = $self->{s}->extra_vars_for_uri();
+    }
+    if ($self->{s}->{-href_extra_vars_qs}) {
+        $self->{'href_extra_vars'} .= '&'.$self->{s}->{-href_extra_vars_qs};
     }
     $self->{'href_extra_vars'} = '&'.$self->{'href_extra_vars'}
       if $self->{'href_extra_vars'} && $self->{'href_extra_vars'} !~ m/^&/;
@@ -116,11 +120,16 @@ sub _init_header_columns {
     foreach my $sql_col (@{ $self->{-pre_nondb_columns} || [] },
                          @{ $self->{'sql_table_display_columns'} },
                          @{ $self->{-post_nondb_columns} || [] }) {
-        my $col = $sql_col;
-        $col =~ s/.*[. ](\w+)$/$1/;
+        my $col = _column_name($self, $sql_col);
         $self->{-display_columns}->{$col} = $col if $init_display_columns;
-        push(@{ $self->{'header_columns'} }, $col) if $self->{-display_columns}->{$col};
+        push(@{ $self->{'header_columns'} }, $col) if defined $self->{-display_columns}->{$col};
     }
+}
+
+sub _column_name {
+    my ($self, $col) = @_;
+    $col =~ s/.*[. ](\w+)$/$1/;
+    return $col;
 }
 
 =item sortby_column_uri($column)
@@ -132,11 +141,17 @@ sorted by $column, then the URI returned will be for reversing the sort.
 
 sub sortby_column_uri {
     my ($self, $column) = @_;
+    return $self->{s}->BASE_URI() . $self->{'action_uri'} . '?'
+      . $self->_query_string_sortby_params($column, 1) . ($self->{'href_extra_vars'} || '');
+}
+
+sub _query_string_sortby_params {
+    my ($self, $column, $for_sortlink) = @_;
+    my $reverse = $self->{s}->{'sort_reverse'}->{$column};
+    $reverse = ! $reverse if $for_sortlink;
     my $sortby = $self->{s}->{'sortby'} && $column eq $self->{s}->{'sortby'};
-    return $self->{s}->BASE_URI() . $self->{'action_uri'}
-      . '?sortby=' . $column
-      . ($sortby ? '&sort_reverse='.($self->{s}->{'sort_reverse'} ? '0':'1') : '')
-      . ($self->{'href_extra_vars'} || '');
+    return 'sortby=' . $column
+      . ($sortby ? '&sort_reverse='.($reverse ? '1':'0') : '');
 }
 
 =item prev_page_uri()
@@ -198,11 +213,83 @@ sub make_nav_uri {
     my ($self, $page_no) = @_;
     my $link = $self->{s}->BASE_URI().$self->{'action_uri'}.'?search_startat='.$page_no;
     if ($self->{s}->{-no_persistent_object} && $self->{s}->{'sortby'}) {
-        $link .= '&sortby=' . ($self->{s}->{'sortby'}||'')
-          . '&sort_reverse=' . ($self->{s}->{'sort_reverse'}||'');
+        $link .= '&'.$self->_query_string_sortby_params($self->{s}->{'sortby'});
     }
     $link .= $self->{'href_extra_vars'} || '';
     return $link;
+}
+
+=item display_pager_links($showtotal, $showpages, $hide_if_singlepage)
+
+Returns an HTML table containing navigation links for first, previous, next,
+and last pages of result set, and optionally, number and range of results being
+displayed, and/or navigable list of pages in the dataset.
+
+This method is called from display() and should be treated as a protected method.
+
+parameters:
+  $showtotal	boolean to toggle whether to show total number
+                of results along with range on current page
+  $showpages    boolean to toggle whether to show page range links
+                for easier navigation in large datasets
+                (has no effect unless -show_total_numresults setting is set)
+  $hide_if_singlepage  boolean to toggle whether to display nothing
+                       if there is only one page of search results
+
+=cut
+
+sub display_pager_links {
+    my ($self, $showtotal, $showpages, $hide_if_singlepage) = @_;
+    my $q = $self->{q};
+    my $startat = $self->{s}->{'page'} || 0;
+    my $pagetotal = scalar( @{$self->{s}->{'results'}} );
+    my $maxpagesize = $self->{s}->{-max_results_per_page};
+    my $searchtotal = $self->{s}->{'numresults'};
+    my $middle_column = $showtotal || $showpages && $searchtotal;
+    my $next_page_exists = defined $maxpagesize
+      && ((defined $searchtotal && $startat != int(($searchtotal-1)/$maxpagesize))
+          || (!$searchtotal && $pagetotal >= $maxpagesize));
+
+    return '' if $hide_if_singlepage && $startat == 0 && !$next_page_exists;
+    return
+      ($q->table
+       ({-width => '96%'}, $q->Tr
+	($q->td({-align => 'left',
+		 -width => $middle_column ? '30%' : '50%'},
+		$q->font({-size => '-1'},
+			 ($startat > 0
+			  ? $q->b(($self->first_page_uri()
+				   ? $q->a({-href => $self->first_page_uri()},
+					   "|&lt;First").'&nbsp;&nbsp;&nbsp;'
+				   : '').
+				  $q->a({-href => $self->prev_page_uri()}, "&lt;Previous"))
+			  : "|At first page"))) .
+	 ($middle_column
+	  ? $q->td({-align => 'center', -width => '40%', -nowrap => 1},
+                   ($showtotal
+                    ? "<B>$pagetotal</B> result".
+                      ($pagetotal == 1 ? '' : 's')." displayed".
+                      ($searchtotal
+                       ? (': <B>'.($startat*$maxpagesize + 1).' - '.
+                          ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
+                          $searchtotal.'</B>')
+                       : '').$q->br
+                    : '') .
+                    ($showpages && $searchtotal
+                     ? $q->font({-size => '-1'},
+                                "Skip to page: ".$self->display_page_range_links($startat))
+                     : '')
+                  )
+	  : '') .
+	 $q->td({-align => 'right', -width => $middle_column ? '30%' : '50%'},
+		$q->font({-size => '-1'},
+			 ($next_page_exists
+			  ? $q->b($q->a({-href => $self->next_page_uri()}, "Next&gt;").
+				  ($self->last_page_uri()
+				   ? '&nbsp;&nbsp;&nbsp;'.$q->a({-href => $self->last_page_uri()},"Last&gt;|")
+				   : ''))
+			  : "At last page|"))))
+       ));
 }
 
 =item display_record($row, $column)
@@ -217,7 +304,7 @@ sub display_record {
     return (ref $self->{-columndata_closures}->{$column} eq "CODE"
             ? $self->{-columndata_closures}->{$column}->($self, $row)
 	    : $self->{-currency_columns}->{$column}
-	    ? sprintf('$%.2f', $row->{$column})
+	    ? sprintf('%.2f', $row->{$column})
 	    : $row->{$column} || '');
 }
 
@@ -254,3 +341,12 @@ sub display_page_range_links {
 
 
 1;
+__END__
+
+=back
+
+=head1 SEE ALSO
+
+L<CGI::Widget::DBI::Search::Display::Grid>, L<CGI::Widget::DBI::Search::Display::Table>,
+
+=cut

@@ -4,10 +4,10 @@ use strict;
 use base qw/ CGI::Widget::DBI::TEST::Search /;
 
 
-sub set_up
+sub init_test_object
 {
     my $self = shift;
-    $self->SUPER::set_up();
+    $self->SUPER::init_test_object();
     $self->{ws}->{-display_mode} = 'grid';
     $self->{ws}->{-grid_columns} = 2;
 }
@@ -26,6 +26,7 @@ sub test_search__basic
         [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
         [ 'td', 'tr', 'tr', 'td' ],
         [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
         [ 'td', 'tr' ],
     );
 }
@@ -42,6 +43,7 @@ sub test_search__display_only_subset_of_columns
         [ 2, 'calendar_widget', 'medium' ],
         [ 'td', 'tr', 'tr', 'td' ],
         [ 3, 'silly_widget', 'unknown' ],
+        [ 4, 'gps_widget', 'medium' ],
         [ 'td', 'tr' ],
     );
     $self->assert_display_does_not_contain( [ 'A time keeper widget', ] );
@@ -63,10 +65,10 @@ sub test_search__display_nondb_columns_and_columndata_closures
 
     $self->assert_display_contains(
         [ 'tr', 'td' ],
-        [ 'Widget #1', 1, 'clock_widget', 'A time keeper widget', 'small', 'Widget Size: small', '>\*\*\*</', ],
-        [ 'Widget #2', 2, 'calendar_widget', 'A date tracker widget', 'medium', 'Widget Size: medium', '>\*\*\*</', ],
+        [ 'Widget #1', 1, 'clock_widget', 'A time keeper widget', 'small', 'Widget Size: small', 'my_header3: \*\*\*</', ],
+        [ 'Widget #2', 2, 'calendar_widget', 'A date tracker widget', 'medium', 'Widget Size: medium', 'my_header3: \*\*\*</', ],
         [ 'td', 'tr', 'tr', 'td' ],
-        [ 'Widget #3', 3, 'silly_widget', 'A goofball widget', 'unknown', 'Widget Size: unknown', '>\*\*\*</', ],
+        [ 'Widget #3', 3, 'silly_widget', 'A goofball widget', 'unknown', 'Widget Size: unknown', 'my_header3: \*\*\*</', ],
         [ 'td', 'tr' ],
     );
 }
@@ -77,6 +79,11 @@ sub test_search__with_a_join
     $self->SUPER::test_search__with_a_join;
 
     $self->assert_display_contains(
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup', 'Sort field',
+          'sortby=widget_no', 'widget_no', 'sortby=name', 'name',
+          'sortby=description', 'description', 'sortby=size', 'size',
+          'sortby=tool_no', 'tool_no', 'sortby=tool_name', 'tool_name',
+          'sortby=type', 'type', ],
         [ 'tr', 'td' ],
         [ 1, 'clock_widget', 'A time keeper widget', 'small', 2, 'wrench', 'hand' ],
         [ 1, 'clock_widget', 'A time keeper widget', 'small', 1, 'hammer', 'hand' ],
@@ -109,9 +116,13 @@ sub test_search__paging
 
     # only displays most recent page of search
     $self->assert_display_contains(
+        [ 'search_startat=0', 'First', 'search_startat=1', 'Previous',
+          '1', 'result displayed', '5 - 5', 'of', '5', 'At last page' ],
         [ 'tr', 'td' ],
         [ 3, 'silly_widget', 'A goofball widget', 'unknown', 4, 'rm', 'unix' ],
         [ 'td', 'tr' ],
+        [ 'search_startat=0', 'First', 'search_startat=1', 'Previous',
+          'Skip to page', '0', '1', '2',  'At last page' ],
     );
 }
 
@@ -122,13 +133,93 @@ sub test_search__sorting
 
     # only displays most recent sorting
     $self->assert_display_contains(
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup',
+          'sortby=widget_no', 'widget_no', 'sortby=name', 'name',
+          'sortby=description', 'description', 'sortby=size', 'size' ],
         [ 'tr', 'td' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
         [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
-        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
         [ 'td', 'tr', 'tr', 'td' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
         [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
         [ 'td', 'tr' ],
     );
+}
+
+sub test_search__sorting__supports_href_and_form_extra_vars
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+
+    $self->_setup_test_search__sorting();
+    $ws->{q}->param('href_testvar', 'foo');
+    $ws->{q}->param('form_hiddenvar', 'bar');
+    $ws->{-href_extra_vars} = { href_testvar => undef };
+    $ws->{-form_extra_vars} = { form_hiddenvar => undef };
+    $ws->search();
+
+    # only displays most recent sorting
+    $self->assert_display_contains(
+        [ 'input type="hidden" name="form_hiddenvar" value="bar' ],
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup',
+          'sortby=widget_no&amp;href_testvar=foo', 'widget_no', 'sortby=name&amp;href_testvar=foo', 'name',
+          'sortby=description&amp;href_testvar=foo', 'description', 'sortby=size&amp;href_testvar=foo', 'size' ],
+        [ 'tr', 'td' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+}
+
+sub test_search__only_allows_sorting_by_specified_columns
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+
+    $self->_setup_test_search__sorting();
+    $ws->{q}->param('sortby', 'widget_no');
+
+    $ws->{-unsortable_columns} = {size => 1};
+    $ws->search();
+
+    $self->assert_display_contains(
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup',
+          'sortby=widget_no', 'widget_no', 'sortby=name', 'name',
+          'sortby=description', 'description' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+    $self->assert_display_does_not_contain([ 'sortby=size', 'size' ]);
+
+    # reset and search again
+    $self->init_test_object();
+    $self->_setup_test_search__sorting();
+    $ws = $self->{ws};
+    $ws->{q}->param('sortby', 'widget_no');
+    $ws->{q}->param('sort_reverse', 1);
+
+    $ws->{-sortable_columns} = {widget_no => 1, name => 1};
+    $ws->search();
+
+    $self->assert_display_contains(
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup',
+          'sortby=widget_no', 'widget_no', 'sortby=name', 'name' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td', 'tr', 'tr', 'td' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 'td', 'tr' ],
+    );
+    $self->assert_display_does_not_contain([ 'sortby=description', 'description' ]);
+    $self->assert_display_does_not_contain([ 'sortby=size', 'size' ]);
 }
 
 sub test_search__default_orderby_and_sorting
@@ -139,11 +230,79 @@ sub test_search__default_orderby_and_sorting
     # only displays most recent sorting
     $self->assert_display_contains(
         [ 'tr', 'td' ],
-        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
-        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
         [ 'td', 'tr', 'tr', 'td' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td', 'tr' ],
+    );
+}
+
+sub test_browse_mode
+{
+    my $self = shift;
+    $self->{ws}->{-browse_mode} = 1;
+    $self->SUPER::test_search__basic;
+
+    $self->assert_display_contains(
+        [ 'tr', 'td' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td', 'tr' ],
+    );
+    $self->assert_display_does_not_contain([ 'At first page', 'At last page' ]);
+    $self->assert_display_does_not_contain([ 'Sort by', 'sortby_columns_popup' ]);
+    $self->assert_display_does_not_contain([ 'Sort field' ]);
+    $self->assert_display_does_not_contain([ 'sortby=widget_no', 'widget_no' ]);
+    $self->assert_display_does_not_contain([ 'sortby=name', 'name', ]);
+}
+
+sub test_browse_mode_with_paging
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+    $ws->{-browse_mode} = 1;
+    $ws->{-max_results_per_page} = 2;
+    $ws->{-sql_table} = 'widgets';
+    $ws->{-sql_retrieve_columns} = [qw/widget_no name description size/];
+
+    $ws->search();
+
+    $self->assert_display_contains(
+        [ 'At first page', '2', 'results displayed', '1 - 2', 'of', '4', 'Next&gt', 'Last&gt' ],
+        [ 'tr', 'td' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
         [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
         [ 'td', 'tr' ],
+        [ 'At first page', 'Next&gt', 'Last&gt' ],
+    );
+    $self->assert_display_does_not_contain([ 'Sort by', 'sortby_columns_popup' ]);
+    $self->assert_display_does_not_contain([ 'Sort field' ]);
+    $self->assert_display_does_not_contain([ 'sortby=widget_no', 'widget_no' ]);
+    $self->assert_display_does_not_contain([ 'sortby=name', 'name', ]);
+
+
+    # reset search
+    $self->init_test_object();
+    $ws = $self->{ws};
+    $ws->{-browse_mode} = 1;
+    $ws->{-max_results_per_page} = 2;
+    $ws->{-sql_table} = 'widgets';
+    $ws->{-sql_retrieve_columns} = [qw/widget_no name description size/];
+
+    $ws->{q}->param('search_startat', 1);
+    $ws->search();
+
+    $self->assert_display_contains(
+        [ 'lt;First', 'lt;Previous', '2', 'results displayed', '3 - 4', 'of', '4', 'At last page' ],
+        [ 'tr', 'td' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+        [ 'lt;First', 'lt;Previous', 'At last page' ],
     );
 }
 

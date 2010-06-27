@@ -27,14 +27,13 @@ sub init_db {
     $self->{-dbh} = DBI->connect('DBI:mysql:database=test;host=localhost', 'test', undef);
     map { $self->{-dbh}->do($_); } $self->_db_schemas();
 
-    $self->_insert_test_data($self->{-dbh});
+    $self->_insert_test_data();
 }
 
 sub init_test_object {
     my $self = shift;
-    my $q = CGI->new;
     $self->{_test_obj} = $self->{ws} =
-      CGI::Widget::DBI::Search->new(q => $q, -dbh => $self->{-dbh});
+      CGI::Widget::DBI::Search->new(q => CGI->new, -dbh => $self->{-dbh});
 }
 
 sub _db_schemas {
@@ -70,6 +69,7 @@ sub _insert_test_data {
     $sth1->execute(1, 'clock_widget', "A time keeper widget", 'small');
     $sth1->execute(2, 'calendar_widget', "A date tracker widget", 'medium');
     $sth1->execute(3, 'silly_widget', "A goofball widget", 'unknown');
+    $sth1->execute(4, 'gps_widget', "A GPS widget", 'medium');
     $sth2->execute(1, 'hammer', 'hand');
     $sth2->execute(2, 'wrench', 'hand');
     $sth2->execute(3, 'ls', 'unix');
@@ -88,6 +88,7 @@ sub _insert_test_data {
             [ 1, 'clock_widget', "A time keeper widget", 'small', ],
             [ 2, 'calendar_widget', "A date tracker widget", 'medium', ],
             [ 3, 'silly_widget', "A goofball widget", 'unknown', ],
+            [ 4, 'gps_widget', "A GPS widget", 'medium', ],
         ],
     );
     $self->assert_table_contents_equal(
@@ -138,22 +139,22 @@ sub assert_display_contains {
     my ($self, @rows) = @_;
     my $ws = $self->{_test_obj};
     local $Error::Depth = 1;
-    my $regex = join('.*', map {defined $_ && $_ ne '' ? '\b'.$_.'\b' : ()} map {@$_} @rows);
-    $self->assert_matches(
-        qr/$regex/s,
-        $ws->display_results,
-    );
+    $ws->{_test_cached_output} ||= $ws->display_results;
+    $self->assert_matches($self->word_sequence_regex_for_rows(@rows), $ws->{_test_cached_output});
 }
 
 sub assert_display_does_not_contain {
     my ($self, @rows) = @_;
     my $ws = $self->{_test_obj};
     local $Error::Depth = 1;
+    $ws->{_test_cached_output} ||= $ws->display_results;
+    $self->assert_does_not_match($self->word_sequence_regex_for_rows(@rows), $ws->{_test_cached_output});
+}
+
+sub word_sequence_regex_for_rows {
+    my ($self, @rows) = @_;
     my $regex = join('.*', map {defined $_ && $_ ne '' ? '\b'.$_.'\b' : ()} map {@$_} @rows);
-    $self->assert_does_not_match(
-        qr/$regex/s,
-        $ws->display_results,
-    );
+    return qr|$regex|s;
 }
 
 

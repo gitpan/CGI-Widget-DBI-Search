@@ -10,7 +10,12 @@ CGI::Widget::DBI::Search::Display::Grid - Grid display class for Search widget
 
 =head1 SYNOPSIS
 
-  This class is not intended to be used directly
+  my $ws = CGI::Widget::DBI::Search->new(q => CGI->new);
+  ...
+  $ws->{-display_class} = 'CGI::Widget::DBI::Search::Display::Grid';
+
+  # or instead, simply:
+  $ws->{-display_mode} = 'grid';
 
 =head1 DESCRIPTION
 
@@ -56,10 +61,13 @@ render_dataset() for each row in the current page of search results.
 sub display_cell {
     my ($self, $row) = @_;
     my $q = $self->{q};
-
-    return $q->td(
-        join '', map {
-            $q->p( $self->display_record($row, $_) )
+    my $td_width = sprintf('%.0f%%', 1 / $self->{-grid_columns} * 100);
+    return $q->td({-class => $self->{s}->{-css_grid_cell_class} || 'searchWidgetGridCell', -valign => 'top', -width => $td_width},
+        join '<br/>', map {
+            my $hdr = defined $self->{-display_columns}->{$_}
+              ? $self->{-display_columns}->{$_} : $_;
+            ($self->{-browse_mode} ? '' : $hdr ? $hdr.': ' : '') .
+              $self->display_record($row, $_);
         } @{ $self->{'header_columns'} }
     );
 }
@@ -84,10 +92,48 @@ sub display_dataset {
     }
     return (
         ($self->{-optional_header}||'') .
-        $q->table({-cellpadding => $self->{-display_table_padding} || 2, -width => '96%'},
+        $self->{s}->extra_vars_for_form() .
+        ($self->{-browse_mode}
+         ? $self->display_pager_links(1, 0, 1)
+         : $q->div({-align => 'right'}, 'Sort by: '.$self->display_sort_popup) .
+           $self->display_pager_links(1, 0)) .
+        $q->table({-class => $self->{s}->{-css_grid_class} || 'searchWidgetGridTable', -width => '96%'},
                   $q->Tr([ @grid_rows ])) .
-#        $self->display_pager_links() .
+        ($self->{-browse_mode}
+         ? $self->display_pager_links(0, 1, 1)
+         : $self->display_pager_links(0, 1)) .
         ($self->{-optional_footer}||'')
+    );
+}
+
+=item display_sort_popup()
+
+Returns an HTML popup with possible columns to sort dataset by, whose values are the
+full navigation URIs.  An onChange event causes the URI to be loaded, resorting the
+dataset.
+
+=cut
+
+sub display_sort_popup {
+    my ($self) = @_;
+    my $q = $self->{q};
+
+    my @sortable_cols = ref $self->{-sortable_columns} eq 'HASH'
+      ? keys %{$self->{-sortable_columns} || {}}
+      : @{$self->{'sql_table_display_columns'}};
+    $self->{'sortable_columns'} ||= [
+        map { $self->_column_name($_) } grep { ! $self->{-unsortable_columns}->{$_} } @sortable_cols
+    ];
+    return $q->popup_menu(
+        -name => 'sortby_columns_popup',
+        -values => [ '', map { $self->sortby_column_uri($_) } @{ $self->{'sortable_columns'} } ],
+        -labels => {
+            '' => '<Sort field>',
+            map { $self->sortby_column_uri($_) => $self->{-display_columns}->{$_} || $_ }
+              @{$self->{'sortable_columns'}}
+        },
+        -onchange => 'javascript:if (this.value) window.location=this.value;',
+        -default => $q->param('sortby') ? $self->sortby_column_uri($q->param('sortby')) : undef,
     );
 }
 
@@ -106,3 +152,12 @@ sub _set_display_defaults {
 
 
 1;
+__END__
+
+=back
+
+=head1 SEE ALSO
+
+L<CGI::Widget::DBI::Search::AbstractDisplay>
+
+=cut

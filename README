@@ -24,9 +24,9 @@ This module requires these other modules and libraries:
   DBI
   Test::Unit  (for running unit tests)
 
-COPYRIGHT AND LICENCE
+COPYRIGHT AND LICENSE
 
-Copyright (C) 2004-2008  Adi Fairbank
+Copyright (C) 2004-2010  Adi Fairbank
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by

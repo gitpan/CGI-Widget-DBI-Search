@@ -8,6 +8,101 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.26 - Jun 27, 2010
+
+Improve and add documentation, including undocumented -form_extra_vars option
+
+Minor API refactoring:
+- remove support for string version of -href_extra_vars and add new option -href_extra_vars_qs
+  for the (query) string version of them
+- move extra_vars_for_uri() and extra_vars_for_form() methods from AbstractDisplay class into
+  core Search class, so it can be more easily called by external classes
+- refactor display code in Display::Table class to give finer-grained overriding control; new
+  methods: display_row(), display_field()
+
+Add PREREQ_PM for DBD::mysql in Makefile.PL, so hopefully cpantesters will stop complaining
+
+=item 0.25 - Oct 26, 2009
+
+Prevent SQL error when sortby param passed with a column not currently in select results
+
+Add append_where_clause() and append_bind_params() methods to make the addition of
+new expressions to the where clause cleaner
+
+Fix bug and add test for missing support for -form_extra_vars in Table display
+
+Change method syntax for logging methods: Base->log_error() and Base->warn()
+
+Add CSS skinning options: -css_grid_class, -css_grid_cell_class, -css_table_class,
+-css_table_row_class, -css_table_cell_class, -css_table_header_class, -css_table_unsortable_header_class
+
+Add -column_align option for specifying html column alignment in table display mode
+
+Add new optional feature (for performance when querying several tables using a join)
+which allow a two-step search:
+- first, perform search and store results in a temporary table, based on columns
+  listed in -sql_search_columns
+- second, join the temporary table (which only contains -max_results_per_page rows)
+  to the rest of the join tables listed in -sql_join_for_dataset to retrieve the
+  data necessary to display the full dataset to the user
+
+=item 0.24 - Jan 15, 2009
+
+New method sql_column_with_tbl_alias_for_alias() which will find the column name
+along with (appended to) SQL table alias, given its column alias or column name.
+
+Improve performance of retrieval of search results from database when no
+-fetchrow_closure not specified (I think), by simply calling DBI::fetchrow_hashref()
+instead of custom method; remove no longer used method default_fetchrow_closure(),
+since it worked exactly like DBI's fetchrow_hashref().
+
+Add new -dry_run option to just generate the SQL that would be executed, but
+not actually execute it.
+
+New config option -form_extra_vars which behaves exactly like -href_extra_vars,
+but creates hidden form fields instead of appending to links, and only in grid
+display mode, for use in http POST requests
+
+UI-only changes:
+- remove -display_table_padding option, since it can be implemented better using CSS
+- add class attributes to all relevant table and td html elements in search
+  result set for both grid and table display modes
+
+Fix bug in AbstractDisplay when generating sort_reverse query string value
+which caused search results to alternate sort direction every page; also 
+fix a bug in the display of the sort direction arrow in Display::Table
+
+Add new -sortable_columns configuration option to specify only those columns
+which user will be allowed to sort by
+
+Optimize getting total query size when using -show_total_numresults with
+MySQL FOUND_ROWS() function
+
+API change: -where_clause no longer should contain 'WHERE', but a backwards
+compatible change has been added so it is still supported if it does
+
+Add paging links to grid display in -browse_mode
+
+Fix obscure bug in Search->get_num_results() method which showed incorrect
+total number of search results in special cases such as when -opt_precols_sql
+equals 'DISTINCT', a common use of that
+
+UI improvements to default grid display layout: add 1px border around cells,
+and prefix each record value with its header column and a colon (:)
+
+Better error logging: show SQL attempted if statement failed to execute
+
+URI escape key/values in -href_extra_vars option when passed as hashref
+
+Add -browse_mode option for use by CGI::Widget::DBI::Browse, to hide sorting
+and paging features during tree navigation
+
+In Grid display class: add popup menu on upper right to allow re-sorting
+the dataset; and add page navigation links to top and bottom
+
+Changes to base class constructor to allow passing an object of package
+CGI::Widget::DBI::.* to be re-blessed as a Search widget (used by Browse)
+
 =item 0.23 - Apr 24, 2008
 
 Minor fixes to support use with Apache::DBI

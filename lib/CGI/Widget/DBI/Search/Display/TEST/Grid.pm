@@ -239,6 +239,72 @@ sub test_search__default_orderby_and_sorting
     );
 }
 
+sub test_search__css_options
+{
+    my $self = shift;
+    $self->{ws}->{-css_grid_class} = 'TestGridClass';
+    $self->{ws}->{-css_grid_cell_class} = 'TestGridCellClass';
+    $self->SUPER::test_search__basic;
+
+    $self->assert_display_contains(
+        [ 'table [^<>]*class="TestGridClass' ],
+        [ 'tr', 'td [^<>]*class="TestGridCellClass' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 'td [^<>]*class="TestGridCellClass' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td [^<>]*class="TestGridCellClass' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td [^<>]*class="TestGridCellClass' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+}
+
+sub test_search__extra_attributes
+{
+    my $self = shift;
+    $self->{ws}->{-extra_grid_cell_attributes} = { test_attr1 => 'foo', test_attr2 => 'bar' };
+    $self->SUPER::test_search__basic;
+
+    $self->assert_display_contains(
+        [ 'table' ],
+        [ 'tr', 'td [^<>]*test-attr2="bar" [^<>]*test-attr1="foo".*' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 'td [^<>]*test-attr2="bar" [^<>]*test-attr1="foo".*' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td [^<>]*test-attr2="bar" [^<>]*test-attr1="foo".*' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td [^<>]*test-attr2="bar" [^<>]*test-attr1="foo".*' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+}
+
+sub test_search__extra_attributes_closure
+{
+    my $self = shift;
+    $self->{ws}->{-extra_grid_cell_attributes} = sub {
+        my ($obj, $row) = @_;
+        my $col1 = $obj->{'header_columns'}->[0];
+        my $col2 = $obj->{'header_columns'}->[1];
+        return { "attr_$col1" => $row->{$col1}, "attr_$col2" => $row->{$col2} };
+    };
+    $self->SUPER::test_search__basic;
+
+    $self->assert_display_contains(
+        [ 'table' ],
+        [ 'tr', 'td [^<>]*attr-widget-no="1" [^<>]*attr-name="clock_widget".*' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 'td [^<>]*attr-widget-no="2" [^<>]*attr-name="calendar_widget".*' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td [^<>]*attr-widget-no="3" [^<>]*attr-name="silly_widget".*' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 'td [^<>]*attr-widget-no="4" [^<>]*attr-name="gps_widget".*' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+}
+
 sub test_browse_mode
 {
     my $self = shift;

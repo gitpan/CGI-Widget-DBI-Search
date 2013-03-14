@@ -29,14 +29,13 @@ sub caller_function {
 sub log_error {
     my ($self, $msg) = @_;
     my $method = $self->caller_function(2) || $self->caller_function(3); # check one level higher in case called from eval
-    my $logmsg = (ref($self)||$self)."->".$method.": ".$msg;
+    my $logmsg = (ref($self)||$self).'->'.$method.': '.$msg;
     if (blessed($self->{r}) && $self->{r}->can('log_error')) {
 	$self->{r}->log_error($logmsg);
-    } elsif (ref $self->{parent} and ref $self->{parent}->{r} eq "Apache") {
+    } elsif (ref $self->{parent} and ref $self->{parent}->{r} eq 'Apache') {
 	$self->{parent}->{r}->log_error($logmsg);
     } else {
-	print STDERR "[".localtime()."] [error] [client $ENV{REMOTE_ADDR}] ".
-	  $logmsg."\n";
+	print STDERR '['.localtime().'] [error] [client '.$ENV{REMOTE_ADDR}.'] (STDERR) '.$logmsg."\n";
     }
 }
 
@@ -44,14 +43,13 @@ sub warn {
     my ($self, $msg) = @_;
     return unless $self->{_DEBUG} || DEBUG;
     my $method = $self->caller_function(2) || $self->caller_function(3);
-    my $logmsg = (ref($self)||$self)."->".$method.": ".$msg;
+    my $logmsg = (ref($self)||$self).'->'.$method.': '.$msg;
     if (blessed($self->{r}) && $self->{r}->can('warn')) {
 	$self->{r}->warn($logmsg);
-    } elsif (ref $self->{parent} and ref $self->{parent}->{r} eq "Apache") {
+    } elsif (ref $self->{parent} and ref $self->{parent}->{r} eq 'Apache') {
 	$self->{parent}->{r}->warn($logmsg);
     } else {
-	print STDERR "[".localtime()."] [warn] [client $ENV{REMOTE_ADDR}] ".
-	  $logmsg."\n";
+	print STDERR '['.localtime().'] [warn] [client '.$ENV{REMOTE_ADDR}.'] (STDERR) '.$logmsg."\n";
     }
 }
 

@@ -8,6 +8,24 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.27 - Mar 14, 2013
+
+Performance improvements by eliminating unnecessary calls to HTML-generation methods
+
+Append oddRow or evenRow to class attribute of <tr/> elements in Display::Table class appropriately,
+so alternating row style can be set in CSS stylesheet
+
+Use proper <thead/>, <tbody/> elements in Display::Table class
+
+Add new option -column_titles for setting the anchor tag title attribute in
+-display_mode => 'table'; if not set, also now default the title to "Sort by: <col display name>"
+
+Add new CSS skinning option -css_table_header_row_class, and rename
+options -css_table_{unsortable_,}header_class to -css_table_{unsortable_,}header_cell_class
+
+Add new options -extra_{grid,{table,_header}}_cell_attributes which support CODE or HASH ref,
+and can be used to set customized, record-specific HTML attributes in the rendered table
+
 =item 0.26 - Jun 27, 2010
 
 Improve and add documentation, including undocumented -form_extra_vars option

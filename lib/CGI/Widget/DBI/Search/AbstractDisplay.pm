@@ -13,6 +13,15 @@ sub new {
     return $self;
 }
 
+sub get_option_value {
+    my ($self, $option_name, $closure_args, $allowed_option_types) = @_;
+    $allowed_option_types ||= { map {$_=>1} qw/CODE HASH ARRAY/ };
+
+    return undef if ! $self->{s}->{$option_name} || ! $allowed_option_types->{ ref($self->{s}->{$option_name}) };
+    return $self->{s}->{$option_name}->($self, @$closure_args) if ref $self->{s}->{$option_name} eq 'CODE';
+    return $self->{s}->{$option_name};
+}
+
 =head1 NAME
 
 CGI::Widget::DBI::Search::AbstractDisplay - Abstract Display class inherited by default display classes
@@ -69,12 +78,8 @@ variable (retrieved from the most recent call to its search() method).
 
 sub display {
     my ($self) = @_;
-    my $q = $self->{q};
-
     $self->_set_display_defaults();
-
     $self->render_dataset();
-
     return $self->display_dataset();
 }
 
@@ -89,7 +94,7 @@ sub _set_display_defaults {
     $self->{'action_uri'} = $self->{-action_uri} || $ENV{SCRIPT_NAME} || '';
 
     $self->{'href_extra_vars'} = '';
-    if (ref $self->{s}->{-href_extra_vars} eq "HASH") {
+    if (ref $self->{s}->{-href_extra_vars} eq 'HASH') {
         $self->{'href_extra_vars'} = $self->{s}->extra_vars_for_uri();
     }
     if ($self->{s}->{-href_extra_vars_qs}) {
@@ -99,7 +104,7 @@ sub _set_display_defaults {
       if $self->{'href_extra_vars'} && $self->{'href_extra_vars'} !~ m/^&/;
 
     # read ordered list of table columns
-    $self->{'sql_table_display_columns'} = ref $self->{s}->{-sql_retrieve_columns} eq "ARRAY"
+    $self->{'sql_table_display_columns'} = ref $self->{s}->{-sql_retrieve_columns} eq 'ARRAY'
       ? [ @{$self->{s}->{-sql_retrieve_columns}} ] : [ @{$self->{s}->{-sql_table_columns}} ];
 
     $self->_init_header_columns();
@@ -116,7 +121,7 @@ settings.
 sub _init_header_columns {
     my ($self) = @_;
     $self->{'header_columns'} = [];
-    my $init_display_columns = ! (ref $self->{-display_columns} eq "HASH");
+    my $init_display_columns = ! (ref $self->{-display_columns} eq 'HASH');
     foreach my $sql_col (@{ $self->{-pre_nondb_columns} || [] },
                          @{ $self->{'sql_table_display_columns'} },
                          @{ $self->{-post_nondb_columns} || [] }) {
@@ -240,7 +245,6 @@ parameters:
 
 sub display_pager_links {
     my ($self, $showtotal, $showpages, $hide_if_singlepage) = @_;
-    my $q = $self->{q};
     my $startat = $self->{s}->{'page'} || 0;
     my $pagetotal = scalar( @{$self->{s}->{'results'}} );
     my $maxpagesize = $self->{s}->{-max_results_per_page};
@@ -251,45 +255,36 @@ sub display_pager_links {
           || (!$searchtotal && $pagetotal >= $maxpagesize));
 
     return '' if $hide_if_singlepage && $startat == 0 && !$next_page_exists;
-    return
-      ($q->table
-       ({-width => '96%'}, $q->Tr
-	($q->td({-align => 'left',
-		 -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 ($startat > 0
-			  ? $q->b(($self->first_page_uri()
-				   ? $q->a({-href => $self->first_page_uri()},
-					   "|&lt;First").'&nbsp;&nbsp;&nbsp;'
-				   : '').
-				  $q->a({-href => $self->prev_page_uri()}, "&lt;Previous"))
-			  : "|At first page"))) .
-	 ($middle_column
-	  ? $q->td({-align => 'center', -width => '40%', -nowrap => 1},
-                   ($showtotal
-                    ? "<B>$pagetotal</B> result".
-                      ($pagetotal == 1 ? '' : 's')." displayed".
-                      ($searchtotal
-                       ? (': <B>'.($startat*$maxpagesize + 1).' - '.
-                          ($startat*$maxpagesize + $pagetotal).'</B> of <B>'.
-                          $searchtotal.'</B>')
-                       : '').$q->br
-                    : '') .
-                    ($showpages && $searchtotal
-                     ? $q->font({-size => '-1'},
-                                "Skip to page: ".$self->display_page_range_links($startat))
-                     : '')
-                  )
-	  : '') .
-	 $q->td({-align => 'right', -width => $middle_column ? '30%' : '50%'},
-		$q->font({-size => '-1'},
-			 ($next_page_exists
-			  ? $q->b($q->a({-href => $self->next_page_uri()}, "Next&gt;").
-				  ($self->last_page_uri()
-				   ? '&nbsp;&nbsp;&nbsp;'.$q->a({-href => $self->last_page_uri()},"Last&gt;|")
-				   : ''))
-			  : "At last page|"))))
-       ));
+    return '<table width="96%"><tr>'
+      .'<td align="left" width="'.($middle_column ? '30%' : '50%').'">'
+        .'<span class="searchResultPagerLinks">'
+          .($startat > 0
+              ? '<b>'.($self->first_page_uri() ? '<a href="'.$self->first_page_uri().'">|&lt;First</a>&nbsp;&nbsp;&nbsp;' : '')
+                .'<a href="'.$self->prev_page_uri().'">&lt;Previous</a></b>'
+              : '|At first page')
+        .'</span></td>'
+      .($middle_column
+          ? '<td align="center" width="40%" nowrap="1">'
+            .($showtotal
+                ? '<b>'.$pagetotal.'</b> result'.($pagetotal == 1 ? '' : 's').' displayed'
+                  .($searchtotal
+                      ? (': <b>'.($startat*$maxpagesize + 1).' - '.
+                           ($startat*$maxpagesize + $pagetotal).'</b> of <b>'.$searchtotal.'</b>')
+                      : '').'<br/>'
+                : '')
+            .($showpages && $searchtotal
+                ? '<span class="searchResultPagerLinks">Skip to page: '.$self->display_page_range_links($startat).'</span>'
+                : '')
+            .'</td>'
+          : '')
+      .'<td align="right" width="'.($middle_column ? '30%' : '50%').'">'
+        .'<span class="searchResultPagerLinks">'
+          .($next_page_exists
+              ? '<b><a href="'.$self->next_page_uri().'">Next&gt;</a>'
+                .($self->last_page_uri() ? '&nbsp;&nbsp;&nbsp;<a href="'.$self->last_page_uri().'">Last&gt;|</a>' : '').'</b>'
+              : 'At last page|')
+        .'</span>'
+      .'</tr></table>';
 }
 
 =item display_record($row, $column)
@@ -301,7 +296,7 @@ The $row parameter is the entire row hash for the row being displayed.
 
 sub display_record {
     my ($self, $row, $column) = @_;
-    return (ref $self->{-columndata_closures}->{$column} eq "CODE"
+    return (ref $self->{-columndata_closures}->{$column} eq 'CODE'
             ? $self->{-columndata_closures}->{$column}->($self, $row)
 	    : $self->{-currency_columns}->{$column}
 	    ? sprintf('%.2f', $row->{$column})
@@ -317,7 +312,6 @@ The number of pages shown is determined by the -page_range_nav_limit setting.
 
 sub display_page_range_links {
     my ($self, $startat) = @_;
-    my $q = $self->{q};
     my @page_range;
     my ($pre, $post) = ('', '');
     if ($startat <= $self->{-page_range_nav_limit}
@@ -335,7 +329,7 @@ sub display_page_range_links {
         $post = ' ...';
     }
     return $pre.join(' ', map {
-        $startat == $_ ? $q->b($_) : $q->a({-href => make_nav_uri($self, $_)}, $_)
+        $startat == $_ ? '<b>'.$_.'</b>' : '<a href="'.make_nav_uri($self, $_).'">'.$_.'</a>'
     } @page_range).$post;
 }
 

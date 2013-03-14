@@ -4,7 +4,7 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.26';
+$CGI::Widget::DBI::Search::VERSION = '0.27';
 
 use DBI;
 use CGI::Widget::DBI::Search::Display::Table;
@@ -17,16 +17,17 @@ use URI::Escape;
 use constant MAX_PER_PAGE => 20;
 use constant PAGE_RANGE_NAV_LIMIT => 10;
 
-use constant SQL_DATABASE       => "";
+use constant SQL_DATABASE       => '';
 
-use constant DBI_CONNECT_HOST   => "localhost";
+use constant DBI_CONNECT_HOST   => 'localhost';
 #use constant DBI_CONNECT_DSN    => 'DBI:mysql:database='.SQL_DATABASE().';host='.DBI_CONNECT_HOST();
-use constant DBI_CONNECT_DSN    => "";
-use constant DBI_USER           => "";
-use constant DBI_PASS           => "";
+use constant DBI_CONNECT_DSN    => '';
+use constant DBI_USER           => '';
+use constant DBI_PASS           => '';
 
 use constant BASE_URI             => '';
-use constant TABLE_HEADER_BGCOLOR => '#cccccc';
+use constant TABLE_HEADER_BGCOLOR => '';
+# if these are unset, do not toggle bgcolor in Display::Table, or rely on CSS class {odd,even}Row
 use constant TABLE_BGCOLOR1       => '#eeeeee';
 use constant TABLE_BGCOLOR2       => '#ffffff';
 
@@ -188,8 +189,11 @@ search logic.
 
   -display_columns        => {HASH} Associative array holding column names as
                              keys, and labels for display table as values,
+  -column_titles          => {HASH} Associative array holding column names as keys, and titles
+                             (anchor titles, a.k.a mouseovers) for display table as values;
+                             has effect only when using -display_mode => 'table
   -column_align           => {HASH} Keyed on column name to specify the table cell
-                             html align attribute when using 'table' -display_mode
+                             html align attribute when using -display_mode => 'table'
   -numeric_columns        => {HASH} Columns of numeric type should have a
                              true value in this hash,
   -currency_columns       => {HASH} Columns of monetary value should have a
@@ -261,11 +265,18 @@ search logic.
   -css_grid_class        => (default: searchWidgetGridTable)
   -css_grid_cell_class   => (default: searchWidgetGridCell)
 
-  -css_table_class        => (default: searchWidgetTableTable)
-  -css_table_row_class    => (default: searchWidgetTableRow)
-  -css_table_cell_class   => (default: searchWidgetTableCell)
-  -css_table_header_class => (default: searchWidgetTableHeader)
-  -css_table_unsortable_header_class => (default: searchWidgetTableUnsortableHeader)
+  -css_table_class             => (default: searchWidgetTableTable)
+  -css_table_row_class         => (default: searchWidgetTableRow)
+  -css_table_header_row_class  => (default: searchWidgetTableHeaderRow)
+  -css_table_cell_class        => (default: searchWidgetTableCell)
+  -css_table_header_cell_class => (default: searchWidgetTableHeaderCell)
+  -css_table_unsortable_header_cell_class => (default: searchWidgetTableUnsortableHeaderCell)
+
+  -extra_grid_cell_attributes  => {HASH} Static attributes to add to the grid table cell (<TD> element),
+                            -OR-  (CODE) Dynamic attributes to add to the grid table cell (<TD> element); the
+                                         anonymous sub takes two arguments: the display object and the results row
+  -extra_table_cell_attributes        => {HASH} -OR- (CODE) Same as above except for table display_mode instead of grid
+  -extra_table_header_cell_attributes => {HASH} -OR- (CODE) Same as above except for table display_mode instead of grid
 
 =back
 
@@ -323,12 +334,12 @@ sub _check_call_syntax {
     my ($self) = @_;
     # method call syntax checks
     unless ($self->{-sql_table}
-            && ref $self->{-sql_retrieve_columns} eq "ARRAY"
+            && ref $self->{-sql_retrieve_columns} eq 'ARRAY'
             && (ref $self->{-dbh} && $self->{-dbh}->isa('DBI::db')
                 || $self->{-dbi_connect_dsn}
                   && defined $self->{-dbi_user}
                   && defined $self->{-dbi_pass})) {
-        $self->log_error("instance variables '-sql_table' (SCALAR), '-sql_retrieve_columns' (ARRAY); '-dbh' or '-dbi_connect_dsn' and '-dbi_user' and '-dbi_pass' (SCALARs) are required");
+        $self->log_error(q|instance variables '-sql_table' (SCALAR), '-sql_retrieve_columns' (ARRAY); '-dbh' or '-dbi_connect_dsn' and '-dbi_user' and '-dbi_pass' (SCALARs) are required|);
         return undef;
     }
     return 1;
@@ -393,8 +404,8 @@ sub search {
     $self->{'page'} ||= 0;
 
     # return cached results if page has not changed
-    if (defined $old_page && $self->{'page'} == $old_page && ref $self->{'results'} eq "ARRAY") {
-        $self->warn("no page change, using cached results");
+    if (defined $old_page && $self->{'page'} == $old_page && ref $self->{'results'} eq 'ARRAY') {
+        $self->warn('no page change, using cached results');
         return $self;
     }
 
@@ -406,7 +417,7 @@ sub search {
 
     $self->{-where_clause} = $where_clause if $where_clause;
     $self->{-where_clause} =~ s/^\s*where//i if $self->{-where_clause};
-    $self->{-bind_params} = $bind_params if ref $bind_params eq "ARRAY";
+    $self->{-bind_params} = $bind_params if ref $bind_params eq 'ARRAY';
     $self->{-max_results_per_page} ||= MAX_PER_PAGE;
     $self->{-page_range_nav_limit} ||= PAGE_RANGE_NAV_LIMIT;
     $self->{-limit_clause} =
@@ -456,7 +467,7 @@ INSERT INTO tmp_search_results (
 @{[ $self->{'_sql'} ]}
 SQL3
             my @bind_params = @{ $self->{-bind_params} || [] };
-            $self->warn("SQL search statement: ".join(";\n", @search_sql)
+            $self->warn('SQL search statement: '.join(";\n", @search_sql)
                           ."\nbind params: ".join(', ', @bind_params));
             $self->{-dbh}->do(shift @search_sql, undef, @bind_params);
             $self->{-dbh}->do(shift @search_sql);
@@ -468,7 +479,7 @@ SQL3
             return undef;
         }
         $self->{-sql_search_columns} = undef;
-        $self->{-sql_table} = "tmp_search_results ".$self->{-sql_join_for_dataset};
+        $self->{-sql_table} = 'tmp_search_results '.$self->{-sql_join_for_dataset};
         $self->{-where_clause} = undef;
         $self->{-bind_params} = undef;
         $self->{-orderby_clause} = 'ORDER BY row_index';
@@ -485,7 +496,7 @@ SQL3
         $sth->execute(@bind_params);
 
         $self->{'results'} = [];
-        if (ref $self->{-fetchrow_closure} eq "CODE") {
+        if (ref $self->{-fetchrow_closure} eq 'CODE') {
             my @row_data;
             $sth->bind_columns
               (map { \$row_data[$_] } 0..$#{$self->{-sql_retrieve_columns}});
@@ -516,12 +527,12 @@ SQL3
 sub _build_sql {
     my ($self) = @_;
     $self->{'_sql_no_limit'} = (
-        "SELECT ".$self->{-opt_precols_sql}." ".join(',', $self->_columns_for_sql()).
-        " FROM ".$self->{-sql_table}." ".
-        ($self->{-where_clause} ? "WHERE ".$self->{-where_clause} : '')." ".
+        'SELECT '.$self->{-opt_precols_sql}.' '.join(',', $self->_columns_for_sql()).
+        ' FROM '.$self->{-sql_table}.' '.
+        ($self->{-where_clause} ? 'WHERE '.$self->{-where_clause} : '').' '.
         ($self->{-orderby_clause}||'')
     );
-    $self->{'_sql'} = $self->{'_sql_no_limit'}." ".($self->{-limit_clause}||'');
+    $self->{'_sql'} = $self->{'_sql_no_limit'}.' '.($self->{-limit_clause}||'');
 }
 
 sub _columns_for_sql {
@@ -600,7 +611,7 @@ sub append_where_clause {
     my ($self, $where_sql, $op) = @_;
     return if ! $where_sql;
     $op ||= 'AND';
-    $self->{-where_clause} = ($self->{-where_clause} ? '( '.$self->{-where_clause}." ) $op " : '') . "( $where_sql )";
+    $self->{-where_clause} = ($self->{-where_clause} ? '( '.$self->{-where_clause}.' ) '.$op.' ' : '') . '( '.$where_sql.' )';
 }
 
 sub append_bind_params {
@@ -621,14 +632,14 @@ object variable -display_columns.
 
 sub display_results {
     my ($self, $disp_cols) = @_;
-    unless (ref $self->{'results'} eq "ARRAY" &&
-	    (ref $self->{-sql_table_columns} eq "ARRAY" ||
-	     ref $self->{-sql_retrieve_columns} eq "ARRAY")) {
-	$self->log_error("instance variables '-sql_table_columns' or '-sql_retrieve_columns', and data resultset 'results' (ARRAYs) are required");
+    unless (ref $self->{'results'} eq 'ARRAY' &&
+	    (ref $self->{-sql_table_columns} eq 'ARRAY' ||
+	     ref $self->{-sql_retrieve_columns} eq 'ARRAY')) {
+	$self->log_error(q|instance variables '-sql_table_columns' or '-sql_retrieve_columns', and data resultset 'results' (ARRAYs) are required|);
 	return undef;
     }
 
-    $self->{-display_columns} = $disp_cols if ref $disp_cols eq "HASH";
+    $self->{-display_columns} = $disp_cols if ref $disp_cols eq 'HASH';
 
     $self->{-display_class} ||= ($self->{-display_mode}||'') eq 'grid'
       ? 'CGI::Widget::DBI::Search::Display::Grid'
@@ -652,6 +663,7 @@ sub _transfer_display_settings {
            -columndata_closures
            -currency_columns
            -display_columns
+           -column_titles
            -column_align
            -numeric_columns
            -optional_header

@@ -69,7 +69,8 @@ links) for the most recent search.
 sub render_column_headers {
     my ($self) = @_;
     my $q = $self->{q};
-    my $header_td_html = '';
+    my $header_th_html = '';
+    my $header_bgcolor = $self->{s}->TABLE_HEADER_BGCOLOR();
     my %sortable_cols = %{ $self->{-sortable_columns} || {} };
 
     # build displayed column headers along with sort links and direction arrow
@@ -78,26 +79,26 @@ sub render_column_headers {
           ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : undef);
 
         if ($self->{-unsortable_columns}->{$col} || (%sortable_cols && ! $sortable_cols{$col}) ) {
-            $header_td_html .=
-              $q->td({-class => $self->{s}->{-css_table_unsortable_header_class} || 'searchWidgetTableUnsortableHeader',
-                      -bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
+            $header_th_html .=
+              $q->th({-class => $self->{s}->{-css_table_unsortable_header_cell_class} || 'searchWidgetTableUnsortableHeaderCell',
+                      ($header_bgcolor ? (-bgcolor => $header_bgcolor) : ()), -nowrap => 1,
                       ($align ? (-align => $align) : ())},
                      $self->{-display_columns}->{$col});
         } else {
             my $sortby = $self->{s}->{'sortby'} && $col eq $self->{s}->{'sortby'};
-            $header_td_html .= $q->td
-              ({-class => $self->{s}->{-css_table_header_class} || 'searchWidgetTableHeader',
-                -bgcolor => $self->{s}->TABLE_HEADER_BGCOLOR(), -nowrap => 1,
-                ($align ? (-align => $align) : ())},
-               ($sortby ? "<B>" : "") .
-                 $q->a({-href => $self->sortby_column_uri($col)},
-                       $self->{-display_columns}->{$col}) . " " .
-                         ($sortby
-                          ? ($self->{s}->{'sort_reverse'}->{$col} ? '\\/' :'/\\')."</B>"
-                          : ''));
+            my %extra_attributes = %{ $self->get_option_value('-extra_table_header_cell_attributes', [$col]) || {} };
+            $header_th_html .= $q->th
+              ({-class => $self->{s}->{-css_table_header_cell_class} || 'searchWidgetTableHeaderCell',
+                ($header_bgcolor ? (-bgcolor => $header_bgcolor) : ()), -nowrap => 1,
+                ($align ? (-align => $align) : ()), %extra_attributes},
+               ($sortby ? '<b>' : '')
+               .'<a href="'.$self->sortby_column_uri($col).'" title="'.($self->{-column_titles}->{$col} || 'Sort by: '.$self->{-display_columns}->{$col}).'">'
+               .'<span>'.$self->{-display_columns}->{$col}.'</span></a>'
+               .' '.($sortby ? ($self->{s}->{'sort_reverse'}->{$col} ? '\\/' :'/\\').'</b>' : '')
+              );
         }
     }
-    $self->{'header_html'} = $q->Tr({-class => $self->{s}->{-css_table_row_class} || 'searchWidgetTableRow'}, $header_td_html);
+    $self->{'header_html'} = '<tr class="'.($self->{s}->{-css_table_header_row_class} || 'searchWidgetTableHeaderRow').'">'.$header_th_html.'</tr>';
 }
 
 =item display_dataset()
@@ -108,15 +109,15 @@ Returns HTML rendering of current page in search results, along with navigation 
 
 sub display_dataset {
     my ($self) = @_;
-    return (
-        ($self->{-optional_header}||'') .
-        $self->{s}->extra_vars_for_form() .
-        $self->display_pager_links(1, 0) .
-        $self->{q}->table({-class => $self->{s}->{-css_table_class} || 'searchWidgetTableTable', -width => '96%'},
-                          $self->{'header_html'}, join('', @{ $self->{'dataset_rows_html'} })) .
-        $self->display_pager_links(0, 1) .
-        ($self->{-optional_footer}||'')
-    );
+    return ($self->{-optional_header}||'')
+      . $self->{s}->extra_vars_for_form()
+      . $self->display_pager_links(1, 0)
+      . '<table class="'.($self->{s}->{-css_table_class} || 'searchWidgetTableTable').'" width="96%">'
+        . '<thead>'.$self->{'header_html'}.'</thead>'
+        . '<tbody>'.join('', @{ $self->{'dataset_rows_html'} }).'</tbody>'
+      . '</table>'
+      . $self->display_pager_links(0, 1)
+      . ($self->{-optional_footer}||'');
 }
 
 =item display_row( $row )
@@ -128,16 +129,18 @@ Calls display_field($row, $header_col) for each header column.
 
 sub display_row {
     my ($self, $row) = @_;
-    # toggle color
-    $self->{'_row_bgcolor'} = ($self->{'_row_bgcolor'}||'') eq $self->{s}->TABLE_BGCOLOR2()
-      ? $self->{s}->TABLE_BGCOLOR1()
-      : $self->{s}->TABLE_BGCOLOR2();
+    $self->{'_row_index'}++;
+    if ($self->{s}->TABLE_BGCOLOR1 && $self->{s}->TABLE_BGCOLOR2) { # toggle color
+        $self->{'_row_bgcolor'} = ($self->{'_row_bgcolor'}||'') eq $self->{s}->TABLE_BGCOLOR2
+          ? $self->{s}->TABLE_BGCOLOR1
+          : $self->{s}->TABLE_BGCOLOR2;
+    }
 
-    return $self->{q}->Tr(
-        {-class => $self->{s}->{-css_table_row_class} || 'searchWidgetTableRow',
-         -style => 'background-color: '.$self->{'_row_bgcolor'}.';' },
-        join '', map { $self->display_field($row, $_) } @{ $self->{'header_columns'} }
-    );
+    return '<tr class="'.($self->{s}->{-css_table_row_class} || 'searchWidgetTableRow').' '
+      .($self->{'_row_index'} % 2 == 0 ? 'evenRow' : 'oddRow').'"'
+      .($self->{'_row_bgcolor'} ? ' style="background-color: '.$self->{'_row_bgcolor'}.';"' : '').'>'
+        .join('', map { $self->display_field($row, $_) } @{ $self->{'header_columns'} })
+      .'</tr>';
 }
 
 =item display_field( $row, $col )
@@ -149,11 +152,12 @@ Calls display_record($row, $col), inherited from L<CGI::Widget::DBI::Search::Abs
 
 sub display_field {
     my ($self, $row, $col) = @_;
+    my %extra_attributes = %{ $self->get_option_value('-extra_table_cell_attributes', [$row, $col]) || {} };
 
     my $align = $self->{-column_align}->{$col} ||
       ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : 'left');
     return $self->{q}->td(
-        {-class => $self->{s}->{-css_table_cell_class} || 'searchWidgetTableCell', -align => $align},
+        {-class => $self->{s}->{-css_table_cell_class} || 'searchWidgetTableCell', -align => $align, %extra_attributes},
         $self->display_record($row, $col)
     );
 }

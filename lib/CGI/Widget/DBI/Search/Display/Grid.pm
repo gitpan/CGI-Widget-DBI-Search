@@ -40,7 +40,6 @@ Builds data in object variables:
 
 sub render_dataset {
     my ($self) = @_;
-    my $q = $self->{q};
     $self->{'dataset_cells_html'} = [];
 
     # iterate over most recently returned 'results', which should be a
@@ -60,14 +59,18 @@ render_dataset() for each row in the current page of search results.
 
 sub display_cell {
     my ($self, $row) = @_;
-    my $q = $self->{q};
     my $td_width = sprintf('%.0f%%', 1 / $self->{-grid_columns} * 100);
-    return $q->td({-class => $self->{s}->{-css_grid_cell_class} || 'searchWidgetGridCell', -valign => 'top', -width => $td_width},
+
+    my %extra_attributes = %{ $self->get_option_value('-extra_grid_cell_attributes', [$row]) || {} };
+
+    return $self->{q}->td(
+        {-class => $self->{s}->{-css_grid_cell_class} || 'searchWidgetGridCell',
+         -valign => 'top', -width => $td_width, %extra_attributes},
         join '<br/>', map {
             my $hdr = defined $self->{-display_columns}->{$_}
               ? $self->{-display_columns}->{$_} : $_;
-            ($self->{-browse_mode} ? '' : $hdr ? $hdr.': ' : '') .
-              $self->display_record($row, $_);
+            ($self->{-browse_mode} ? '' : $hdr ? $hdr.': ' : '')
+              . $self->display_record($row, $_);
         } @{ $self->{'header_columns'} }
     );
 }
@@ -80,7 +83,6 @@ Returns HTML rendering of current page in search results, along with navigation 
 
 sub display_dataset {
     my ($self) = @_;
-    my $q = $self->{q};
 
     my @grid_rows;
     foreach my $i (0 .. $#{ $self->{'dataset_cells_html'} }) {
@@ -90,20 +92,18 @@ sub display_dataset {
             $grid_rows[-1] .= $self->{'dataset_cells_html'}->[$i];
         }
     }
-    return (
-        ($self->{-optional_header}||'') .
-        $self->{s}->extra_vars_for_form() .
-        ($self->{-browse_mode}
-         ? $self->display_pager_links(1, 0, 1)
-         : $q->div({-align => 'right'}, 'Sort by: '.$self->display_sort_popup) .
-           $self->display_pager_links(1, 0)) .
-        $q->table({-class => $self->{s}->{-css_grid_class} || 'searchWidgetGridTable', -width => '96%'},
-                  $q->Tr([ @grid_rows ])) .
-        ($self->{-browse_mode}
-         ? $self->display_pager_links(0, 1, 1)
-         : $self->display_pager_links(0, 1)) .
-        ($self->{-optional_footer}||'')
-    );
+    return ($self->{-optional_header}||'')
+      . $self->{s}->extra_vars_for_form()
+      . ($self->{-browse_mode}
+           ? $self->display_pager_links(1, 0, 1)
+           : '<div align="right">Sort by: '.$self->display_sort_popup.'</div>'.$self->display_pager_links(1, 0))
+      . '<table class="'.($self->{s}->{-css_grid_class} || 'searchWidgetGridTable').'" width="96%">'
+        . $self->{q}->Tr([ @grid_rows ])
+      . '</table>'
+      . ($self->{-browse_mode}
+           ? $self->display_pager_links(0, 1, 1)
+           : $self->display_pager_links(0, 1))
+      . ($self->{-optional_footer}||'');
 }
 
 =item display_sort_popup()

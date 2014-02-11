@@ -4,11 +4,12 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 
+use constant BASE_URI => '';
+
 sub new {
     my ($this, $search) = @_;
     my $class = ref($this) || $this;
     my $self = bless {}, $class;
-    $self->{s} = $search if $search;
     $self->{q} = $search->{q} if $search->{q};
     return $self;
 }
@@ -17,9 +18,9 @@ sub get_option_value {
     my ($self, $option_name, $closure_args, $allowed_option_types) = @_;
     $allowed_option_types ||= { map {$_=>1} qw/CODE HASH ARRAY/ };
 
-    return undef if ! $self->{s}->{$option_name} || ! $allowed_option_types->{ ref($self->{s}->{$option_name}) };
-    return $self->{s}->{$option_name}->($self, @$closure_args) if ref $self->{s}->{$option_name} eq 'CODE';
-    return $self->{s}->{$option_name};
+    return undef if ! $self->{$option_name} || ! $allowed_option_types->{ ref($self->{$option_name}) };
+    return $self->{$option_name}->($self, @$closure_args) if ref $self->{$option_name} eq 'CODE';
+    return $self->{$option_name};
 }
 
 =head1 NAME
@@ -94,18 +95,18 @@ sub _set_display_defaults {
     $self->{'action_uri'} = $self->{-action_uri} || $ENV{SCRIPT_NAME} || '';
 
     $self->{'href_extra_vars'} = '';
-    if (ref $self->{s}->{-href_extra_vars} eq 'HASH') {
-        $self->{'href_extra_vars'} = $self->{s}->extra_vars_for_uri();
+    if (ref $self->{-href_extra_vars} eq 'HASH') {
+        $self->{'href_extra_vars'} = $self->extra_vars_for_uri();
     }
-    if ($self->{s}->{-href_extra_vars_qs}) {
-        $self->{'href_extra_vars'} .= '&'.$self->{s}->{-href_extra_vars_qs};
+    if ($self->{-href_extra_vars_qs}) {
+        $self->{'href_extra_vars'} .= '&'.$self->{-href_extra_vars_qs};
     }
     $self->{'href_extra_vars'} = '&'.$self->{'href_extra_vars'}
       if $self->{'href_extra_vars'} && $self->{'href_extra_vars'} !~ m/^&/;
 
     # read ordered list of table columns
-    $self->{'sql_table_display_columns'} = ref $self->{s}->{-sql_retrieve_columns} eq 'ARRAY'
-      ? [ @{$self->{s}->{-sql_retrieve_columns}} ] : [ @{$self->{s}->{-sql_table_columns}} ];
+    $self->{'sql_table_display_columns'} = ref $self->{-sql_retrieve_columns} eq 'ARRAY'
+      ? [ @{$self->{-sql_retrieve_columns}} ] : [ @{$self->{-sql_table_columns}} ];
 
     $self->_init_header_columns();
 }
@@ -146,17 +147,32 @@ sorted by $column, then the URI returned will be for reversing the sort.
 
 sub sortby_column_uri {
     my ($self, $column) = @_;
-    return $self->{s}->BASE_URI() . $self->{'action_uri'} . '?'
+    return $self->BASE_URI . $self->{'action_uri'} . '?'
       . $self->_query_string_sortby_params($column, 1) . ($self->{'href_extra_vars'} || '');
 }
 
 sub _query_string_sortby_params {
     my ($self, $column, $for_sortlink) = @_;
-    my $reverse = $self->{s}->{'sort_reverse'}->{$column};
+    my $reverse = $self->{'sort_reverse'}->{$column};
     $reverse = ! $reverse if $for_sortlink;
-    my $sortby = $self->{s}->{'sortby'} && $column eq $self->{s}->{'sortby'};
+    my $sortby = $self->{'sortby'} && $column eq $self->{'sortby'};
     return 'sortby=' . $column
       . ($sortby ? '&sort_reverse='.($reverse ? '1':'0') : '');
+}
+
+=item next_page_exists()
+
+Returns true if another page of search results exists after the current page.
+
+=cut
+
+sub next_page_exists {
+    my ($self) = @_;
+    my $maxpagesize = $self->{-max_results_per_page};
+    my $searchtotal = $self->{'numresults'};
+    return defined $maxpagesize
+      && (defined $searchtotal ? ($self->{'page'}||0) != int(($searchtotal-1)/$maxpagesize)
+            : scalar( @{$self->{'results'}} ) >= $maxpagesize);
 }
 
 =item prev_page_uri()
@@ -167,7 +183,7 @@ Returns URI of location to previous page in search results.
 
 sub prev_page_uri {
     my ($self) = @_;
-    $self->{'prevlink'} ||= make_nav_uri($self, $self->{s}->{'page'} - 1);
+    $self->{'prevlink'} ||= make_nav_uri($self, $self->{'page'} - 1);
     return $self->{'prevlink'};
 }
 
@@ -179,7 +195,7 @@ Returns URI of location to next page in search results.
 
 sub next_page_uri {
     my ($self) = @_;
-    $self->{'nextlink'} ||= make_nav_uri($self, $self->{s}->{'page'} + 1);
+    $self->{'nextlink'} ||= make_nav_uri($self, $self->{'page'} + 1);
     return $self->{'nextlink'};
 }
 
@@ -203,7 +219,7 @@ Returns URI of location to last page in search results.
 
 sub last_page_uri {
     my ($self) = @_;
-    $self->{'lastlink'} ||= make_nav_uri($self, $self->{s}->{'lastpage'});
+    $self->{'lastlink'} ||= make_nav_uri($self, $self->{'lastpage'});
     return $self->{'lastlink'};
 }
 
@@ -216,9 +232,9 @@ Pages start at 0, with each page containing at most -max_results_per_page.
 
 sub make_nav_uri {
     my ($self, $page_no) = @_;
-    my $link = $self->{s}->BASE_URI().$self->{'action_uri'}.'?search_startat='.$page_no;
-    if ($self->{s}->{-no_persistent_object} && $self->{s}->{'sortby'}) {
-        $link .= '&'.$self->_query_string_sortby_params($self->{s}->{'sortby'});
+    my $link = $self->BASE_URI.$self->{'action_uri'}.'?search_startat='.$page_no;
+    if ($self->{-no_persistent_object} && $self->{'sortby'}) {
+        $link .= '&'.$self->_query_string_sortby_params($self->{'sortby'});
     }
     $link .= $self->{'href_extra_vars'} || '';
     return $link;
@@ -245,14 +261,12 @@ parameters:
 
 sub display_pager_links {
     my ($self, $showtotal, $showpages, $hide_if_singlepage) = @_;
-    my $startat = $self->{s}->{'page'} || 0;
-    my $pagetotal = scalar( @{$self->{s}->{'results'}} );
-    my $maxpagesize = $self->{s}->{-max_results_per_page};
-    my $searchtotal = $self->{s}->{'numresults'};
+    my $startat = $self->{'page'} || 0;
+    my $pagetotal = scalar( @{$self->{'results'}} );
+    my $maxpagesize = $self->{-max_results_per_page};
+    my $searchtotal = $self->{'numresults'};
     my $middle_column = $showtotal || $showpages && $searchtotal;
-    my $next_page_exists = defined $maxpagesize
-      && ((defined $searchtotal && $startat != int(($searchtotal-1)/$maxpagesize))
-          || (!$searchtotal && $pagetotal >= $maxpagesize));
+    my $next_page_exists = $self->next_page_exists();
 
     return '' if $hide_if_singlepage && $startat == 0 && !$next_page_exists;
     return '<table width="96%"><tr>'
@@ -283,7 +297,7 @@ sub display_pager_links {
               ? '<b><a href="'.$self->next_page_uri().'">Next&gt;</a>'
                 .($self->last_page_uri() ? '&nbsp;&nbsp;&nbsp;<a href="'.$self->last_page_uri().'">Last&gt;|</a>' : '').'</b>'
               : 'At last page|')
-        .'</span>'
+        .'</span></td>'
       .'</tr></table>';
 }
 
@@ -296,11 +310,10 @@ The $row parameter is the entire row hash for the row being displayed.
 
 sub display_record {
     my ($self, $row, $column) = @_;
-    return (ref $self->{-columndata_closures}->{$column} eq 'CODE'
-            ? $self->{-columndata_closures}->{$column}->($self, $row)
-	    : $self->{-currency_columns}->{$column}
-	    ? sprintf('%.2f', $row->{$column})
-	    : $row->{$column} || '');
+    return ref $self->{-columndata_closures}->{$column} eq 'CODE' ? $self->{-columndata_closures}->{$column}->($self, $row)
+      : $self->{-currency_columns}->{$column} ? sprintf('%.2f', $row->{$column})
+      : $self->{-skip_utf8_decode} ? $row->{$column} || ''
+      : $self->decode_utf8($row->{$column} || '');
 }
 
 =item display_page_range_links()
@@ -315,13 +328,13 @@ sub display_page_range_links {
     my @page_range;
     my ($pre, $post) = ('', '');
     if ($startat <= $self->{-page_range_nav_limit}
-          && $startat + $self->{-page_range_nav_limit} >= $self->{s}->{'lastpage'}) {
-        @page_range = 0 .. $self->{s}->{'lastpage'};
+          && $startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
+        @page_range = 0 .. $self->{'lastpage'};
     } elsif ($startat <= $self->{-page_range_nav_limit}) {
         @page_range = 0 .. ($startat + $self->{-page_range_nav_limit});
         $post = ' ...';
-    } elsif ($startat + $self->{-page_range_nav_limit} >= $self->{s}->{'lastpage'}) {
-        @page_range = ($startat - $self->{-page_range_nav_limit}) .. $self->{s}->{'lastpage'};
+    } elsif ($startat + $self->{-page_range_nav_limit} >= $self->{'lastpage'}) {
+        @page_range = ($startat - $self->{-page_range_nav_limit}) .. $self->{'lastpage'};
         $pre = '... ';
     } else {
         @page_range = ($startat - $self->{-page_range_nav_limit}) .. ($startat + $self->{-page_range_nav_limit});

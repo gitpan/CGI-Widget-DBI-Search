@@ -44,7 +44,7 @@ sub render_dataset {
 
     # iterate over most recently returned 'results', which should be a
     # (possibly blessed) hashref
-    foreach my $row (@{$self->{s}->{'results'}}) {
+    foreach my $row (@{$self->{'results'}}) {
 	# build a cell in the grid
 	push(@{ $self->{'dataset_cells_html'} }, $self->display_cell($row));
     }
@@ -64,7 +64,7 @@ sub display_cell {
     my %extra_attributes = %{ $self->get_option_value('-extra_grid_cell_attributes', [$row]) || {} };
 
     return $self->{q}->td(
-        {-class => $self->{s}->{-css_grid_cell_class} || 'searchWidgetGridCell',
+        {-class => $self->{-css_grid_cell_class} || 'searchWidgetGridCell',
          -valign => 'top', -width => $td_width, %extra_attributes},
         join '<br/>', map {
             my $hdr = defined $self->{-display_columns}->{$_}
@@ -93,11 +93,11 @@ sub display_dataset {
         }
     }
     return ($self->{-optional_header}||'')
-      . $self->{s}->extra_vars_for_form()
+      . $self->extra_vars_for_form()
       . ($self->{-browse_mode}
            ? $self->display_pager_links(1, 0, 1)
            : '<div align="right">Sort by: '.$self->display_sort_popup.'</div>'.$self->display_pager_links(1, 0))
-      . '<table class="'.($self->{s}->{-css_grid_class} || 'searchWidgetGridTable').'" width="96%">'
+      . '<table class="'.($self->{-css_grid_class} || 'searchWidgetGridTable').'" width="96%">'
         . $self->{q}->Tr([ @grid_rows ])
       . '</table>'
       . ($self->{-browse_mode}

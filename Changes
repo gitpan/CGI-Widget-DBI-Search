@@ -8,6 +8,21 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.30 - Feb 11, 2014
+
+Add utf8 decoding method in Base class, and utf8-decode all non-numeric, non-columndata_closure cell
+data by default, with -skip_utf8_decode option to disable
+
+Refactoring to eliminate circular reference from Display object back to Search object,
+to prevent memory leaks
+
+Add missing </td> closing tag in AbstractDisplay->display_pager_links()
+
+Fix bug in handling -href_extra_vars for params having 0 value, which must be treated differently
+from params not sent at all; also escape utf8 chars in param values correctly in generated URI
+
+Minor fix to add support for -extra_table_header_cell_attributes in unsortable columns
+
 =item 0.27 - Mar 14, 2013
 
 Performance improvements by eliminating unnecessary calls to HTML-generation methods

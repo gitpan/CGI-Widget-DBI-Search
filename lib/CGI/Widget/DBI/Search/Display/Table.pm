@@ -4,6 +4,11 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::AbstractDisplay /;
 
+use constant TABLE_HEADER_BGCOLOR => '';
+# if these are unset, do not toggle bgcolor via html, but can still do it via CSS class {odd,even}Row
+use constant TABLE_BGCOLOR1       => '#eeeeee';
+use constant TABLE_BGCOLOR2       => '#ffffff';
+
 =head1 NAME
 
 CGI::Widget::DBI::Search::Display::Table - HTML table display class for Search widget
@@ -53,7 +58,7 @@ sub render_dataset {
     $self->render_column_headers();
 
     # iterate over most recently returned 'results', which should be a (possibly blessed) hashref
-    foreach my $row (@{$self->{s}->{'results'}}) {
+    foreach my $row (@{$self->{'results'}}) {
         # build a table row
         push(@{ $self->{'dataset_rows_html'} }, $self->display_row($row));
     }
@@ -70,35 +75,34 @@ sub render_column_headers {
     my ($self) = @_;
     my $q = $self->{q};
     my $header_th_html = '';
-    my $header_bgcolor = $self->{s}->TABLE_HEADER_BGCOLOR();
+    my $header_bgcolor = $self->TABLE_HEADER_BGCOLOR;
     my %sortable_cols = %{ $self->{-sortable_columns} || {} };
 
     # build displayed column headers along with sort links and direction arrow
     foreach my $col (@{ $self->{'header_columns'} }) {
         my $align = $self->{-column_align}->{$col} ||
           ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : undef);
-
+        my %th_attributes = ( $header_bgcolor ? (-bgcolor => $header_bgcolor) : (), -nowrap => 1, $align ? (-align => $align) : () );
+        my %extra_th_attributes = %{ $self->get_option_value('-extra_table_header_cell_attributes', [$col]) || {} };
         if ($self->{-unsortable_columns}->{$col} || (%sortable_cols && ! $sortable_cols{$col}) ) {
-            $header_th_html .=
-              $q->th({-class => $self->{s}->{-css_table_unsortable_header_cell_class} || 'searchWidgetTableUnsortableHeaderCell',
-                      ($header_bgcolor ? (-bgcolor => $header_bgcolor) : ()), -nowrap => 1,
-                      ($align ? (-align => $align) : ())},
-                     $self->{-display_columns}->{$col});
+            $header_th_html .= $self->{q}->th(
+                {-class => $self->{-css_table_unsortable_header_cell_class} || 'searchWidgetTableUnsortableHeaderCell',
+                 %th_attributes, %extra_th_attributes},
+                $self->{-display_columns}->{$col},
+            );
         } else {
-            my $sortby = $self->{s}->{'sortby'} && $col eq $self->{s}->{'sortby'};
-            my %extra_attributes = %{ $self->get_option_value('-extra_table_header_cell_attributes', [$col]) || {} };
-            $header_th_html .= $q->th
-              ({-class => $self->{s}->{-css_table_header_cell_class} || 'searchWidgetTableHeaderCell',
-                ($header_bgcolor ? (-bgcolor => $header_bgcolor) : ()), -nowrap => 1,
-                ($align ? (-align => $align) : ()), %extra_attributes},
-               ($sortby ? '<b>' : '')
-               .'<a href="'.$self->sortby_column_uri($col).'" title="'.($self->{-column_titles}->{$col} || 'Sort by: '.$self->{-display_columns}->{$col}).'">'
-               .'<span>'.$self->{-display_columns}->{$col}.'</span></a>'
-               .' '.($sortby ? ($self->{s}->{'sort_reverse'}->{$col} ? '\\/' :'/\\').'</b>' : '')
+            my $sortby = $self->{'sortby'} && $col eq $self->{'sortby'};
+            $header_th_html .= $self->{q}->th(
+                {-class => $self->{-css_table_header_cell_class} || 'searchWidgetTableHeaderCell',
+                 %th_attributes, %extra_th_attributes},
+                ($sortby ? '<b>' : '')
+                  .'<a href="'.$self->sortby_column_uri($col).'" title="'.($self->{-column_titles}->{$col} || 'Sort by: '.$self->{-display_columns}->{$col}).'">'
+                  .'<span>'.$self->{-display_columns}->{$col}.'</span></a>'
+                  .' '.($sortby ? ($self->{'sort_reverse'}->{$col} ? '\\/' :'/\\').'</b>' : '')
               );
         }
     }
-    $self->{'header_html'} = '<tr class="'.($self->{s}->{-css_table_header_row_class} || 'searchWidgetTableHeaderRow').'">'.$header_th_html.'</tr>';
+    $self->{'header_html'} = '<tr class="'.($self->{-css_table_header_row_class} || 'searchWidgetTableHeaderRow').'">'.$header_th_html.'</tr>';
 }
 
 =item display_dataset()
@@ -110,9 +114,9 @@ Returns HTML rendering of current page in search results, along with navigation 
 sub display_dataset {
     my ($self) = @_;
     return ($self->{-optional_header}||'')
-      . $self->{s}->extra_vars_for_form()
+      . $self->extra_vars_for_form()
       . $self->display_pager_links(1, 0)
-      . '<table class="'.($self->{s}->{-css_table_class} || 'searchWidgetTableTable').'" width="96%">'
+      . '<table class="'.($self->{-css_table_class} || 'searchWidgetTableTable').'" width="96%">'
         . '<thead>'.$self->{'header_html'}.'</thead>'
         . '<tbody>'.join('', @{ $self->{'dataset_rows_html'} }).'</tbody>'
       . '</table>'
@@ -130,13 +134,13 @@ Calls display_field($row, $header_col) for each header column.
 sub display_row {
     my ($self, $row) = @_;
     $self->{'_row_index'}++;
-    if ($self->{s}->TABLE_BGCOLOR1 && $self->{s}->TABLE_BGCOLOR2) { # toggle color
-        $self->{'_row_bgcolor'} = ($self->{'_row_bgcolor'}||'') eq $self->{s}->TABLE_BGCOLOR2
-          ? $self->{s}->TABLE_BGCOLOR1
-          : $self->{s}->TABLE_BGCOLOR2;
+    if ($self->TABLE_BGCOLOR1 && $self->TABLE_BGCOLOR2) { # toggle color
+        $self->{'_row_bgcolor'} = ($self->{'_row_bgcolor'}||'') eq $self->TABLE_BGCOLOR2
+          ? $self->TABLE_BGCOLOR1
+          : $self->TABLE_BGCOLOR2;
     }
 
-    return '<tr class="'.($self->{s}->{-css_table_row_class} || 'searchWidgetTableRow').' '
+    return '<tr class="'.($self->{-css_table_row_class} || 'searchWidgetTableRow').' '
       .($self->{'_row_index'} % 2 == 0 ? 'evenRow' : 'oddRow').'"'
       .($self->{'_row_bgcolor'} ? ' style="background-color: '.$self->{'_row_bgcolor'}.';"' : '').'>'
         .join('', map { $self->display_field($row, $_) } @{ $self->{'header_columns'} })
@@ -157,7 +161,7 @@ sub display_field {
     my $align = $self->{-column_align}->{$col} ||
       ($self->{-numeric_columns}->{$col} || $self->{-currency_columns}->{$col} ? 'right' : 'left');
     return $self->{q}->td(
-        {-class => $self->{s}->{-css_table_cell_class} || 'searchWidgetTableCell', -align => $align, %extra_attributes},
+        {-class => $self->{-css_table_cell_class} || 'searchWidgetTableCell', -align => $align, %extra_attributes},
         $self->display_record($row, $col)
     );
 }

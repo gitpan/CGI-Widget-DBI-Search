@@ -2,7 +2,10 @@ package CGI::Widget::DBI::Search::Base;
 
 use strict;
 
+use Encode qw/decode/;
+use Encode::Detect;
 use Scalar::Util qw/blessed/;
+use URI::Escape;
 
 # --------------------- USER CUSTOMIZABLE VARIABLES ------------------------
 
@@ -51,6 +54,34 @@ sub warn {
     } else {
 	print STDERR '['.localtime().'] [warn] [client '.$ENV{REMOTE_ADDR}.'] (STDERR) '.$logmsg."\n";
     }
+}
+
+sub extra_vars_for_uri {
+    my ($self, $exclude_param_list) = @_;
+    return '' unless ref $self->{-href_extra_vars} eq 'HASH';
+    my %exclude = map {$_=>1} @{$exclude_param_list||[]};
+    return join('&', map {
+        $exclude{$_} ? ()
+          : uri_escape($_).'='.uri_escape_utf8(defined $self->{-href_extra_vars}->{$_}
+                                                 ? $self->{-href_extra_vars}->{$_}
+                                                 : $self->{q}->param($_) // '');
+    } keys %{$self->{-href_extra_vars}});
+}
+
+sub extra_vars_for_form {
+    my ($self) = @_;
+    return '' unless ref $self->{-form_extra_vars} eq 'HASH';
+    return join('', map { $self->{q}->hidden($_) } sort keys %{$self->{-form_extra_vars}});
+}
+
+sub decode_utf8 {
+    my ($self, $input) = @_;
+    my $output = eval { decode('Detect', $input); };
+    if ($@) {
+        return $input if $@ =~ m/^Unknown encoding:/;
+        die $@;
+    }
+    return $output;
 }
 
 

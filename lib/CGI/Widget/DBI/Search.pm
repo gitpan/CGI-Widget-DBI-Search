@@ -4,12 +4,11 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.27';
+$CGI::Widget::DBI::Search::VERSION = '0.30';
 
 use DBI;
 use CGI::Widget::DBI::Search::Display::Table;
 use CGI::Widget::DBI::Search::Display::Grid;
-use URI::Escape;
 
 # --------------------- USER CUSTOMIZABLE VARIABLES ------------------------
 
@@ -25,40 +24,35 @@ use constant DBI_CONNECT_DSN    => '';
 use constant DBI_USER           => '';
 use constant DBI_PASS           => '';
 
-use constant BASE_URI             => '';
-use constant TABLE_HEADER_BGCOLOR => '';
-# if these are unset, do not toggle bgcolor in Display::Table, or rely on CSS class {odd,even}Row
-use constant TABLE_BGCOLOR1       => '#eeeeee';
-use constant TABLE_BGCOLOR2       => '#ffffff';
-
 # --------------------- END USER CUSTOMIZABLE VARIABLES --------------------
 
 
+# VARS_TO_KEEP and cleanup() method not called anywhere; commented out
+
 # instance variables to keep across http requests
 #  NOTE: closure variables should NOT be kept! Storable cannot handle CODE refs
-use constant VARS_TO_KEEP =>
-  {# vars beginning with '-' are object config vars, set by programmer
-   -sql_table => 1, -sql_table_columns => 1, -sql_retrieve_columns => 1,
-   -pre_nondb_columns => 1, -post_nondb_columns => 1, -action_uri => 1,
-   -display_columns => 1, -unsortable_columns => 1, -sortable_columns => 1, -default_orderby_columns => 1,
-   -column_align => 1, -numeric_columns => 1, -currency_columns => 1,
-   -optional_header => 1, -optional_footer => 1, -href_extra_vars => 1, -href_extra_vars_qs => 1,
-   -where_clause => 1, -bind_params => 1, -opt_precols_sql => 1,
-   -max_results_per_page => 1, -page_range_nav_limit => 1, -show_total_numresults => 1,
-   -no_persistent_object => 1, -display_mode => 1, -display_class => 1,
-   -grid_columns => 1, -browse_mode => 1,
-   # vars not beginning with '-' are instance vars, set by methods in class
-   results => 1, numresults => 1, page => 1, lastpage => 1, sortby  => 1,
-   page_sortby => 1, reverse_pagesort => 1,
-  };
+# use constant VARS_TO_KEEP => {# vars beginning with '-' are object config vars, set by programmer
+#     -sql_table            => 1, -sql_table_columns    => 1, -sql_retrieve_columns  => 1,
+#     -pre_nondb_columns    => 1, -post_nondb_columns   => 1, -action_uri            => 1,
+#     -display_columns      => 1, -unsortable_columns   => 1, -sortable_columns      => 1, -default_orderby_columns => 1,
+#     -column_align         => 1, -numeric_columns      => 1, -currency_columns      => 1,
+#     -optional_header      => 1, -optional_footer      => 1, -href_extra_vars       => 1, -href_extra_vars_qs      => 1,
+#     -where_clause         => 1, -bind_params          => 1, -opt_precols_sql       => 1,
+#     -max_results_per_page => 1, -page_range_nav_limit => 1, -show_total_numresults => 1,
+#     -no_persistent_object => 1, -display_mode         => 1, -display_class         => 1,
+#     -grid_columns         => 1, -browse_mode          => 1,
+#     # vars not beginning with '-' are instance vars, set by methods in class
+#     results     => 1, numresults       => 1, page => 1, lastpage => 1, sortby => 1,
+#     page_sortby => 1, reverse_pagesort => 1,
+# };
 
-sub cleanup {
-    my ($self) = @_;
-    # delete instance variables not set to keep across http requests
-    while (my ($k, $v) = each %$self) {
-	delete $self->{$k} unless VARS_TO_KEEP->{$k};
-    }
-}
+# sub cleanup { 
+#     my ($self) = @_;
+#     # delete instance variables not set to keep across http requests
+#     while (my ($k, $v) = each %$self) {
+# 	delete $self->{$k} unless VARS_TO_KEEP->{$k};
+#     }
+# }
 
 =head1 NAME
 
@@ -240,6 +234,13 @@ search logic.
                               $color (the current background color of this row)
                              and is (currently) expected to return an HTML table
                              cell (e.g. "<td>blah</td>")
+  -skip_utf8_decode       => Boolean to control whether a utf8 decode is done on raw
+                             (non- columndata_closure, non-numeric) data before displaying.
+                             By default a utf8 decode is done in case there are utf8 chars
+                             present, but if you know there will be no utf8 chars, enabling
+                             this will increase performance.  Has no effect when
+                             -columndata_closures in effect for column.
+                             (default: 0)
 
   -display_mode           => ('table'|'grid') Which of the default display modes
                              to use, table or grid.
@@ -622,6 +623,11 @@ sub append_bind_params {
 }
 
 
+=item init_display_class([ $disp_cols ])
+
+Instantiates and initializes the desired display object.  Returns it and sets in 'display' object variable.
+This is called by display_results(), and does not normally need to be called directly.
+
 =item display_results([ $disp_cols ])
 
 Displays an HTML table of data values stored in object variable 'results' (retrieved
@@ -630,7 +636,7 @@ object variable -display_columns.
 
 =cut
 
-sub display_results {
+sub init_display_class {
     my ($self, $disp_cols) = @_;
     unless (ref $self->{'results'} eq 'ARRAY' &&
 	    (ref $self->{-sql_table_columns} eq 'ARRAY' ||
@@ -640,45 +646,42 @@ sub display_results {
     }
 
     $self->{-display_columns} = $disp_cols if ref $disp_cols eq 'HASH';
-
     $self->{-display_class} ||= ($self->{-display_mode}||'') eq 'grid'
       ? 'CGI::Widget::DBI::Search::Display::Grid'
       : 'CGI::Widget::DBI::Search::Display::Table';
+
     $self->{display} = $self->{-display_class}->new($self);
-    $self->_transfer_display_settings();
+    $self->transfer_display_settings();
+    return $self->{display};
+}
+
+sub display_results {
+    my ($self, $disp_cols) = @_;
+    return undef if ! $self->init_display_class($disp_cols);
     return $self->{display}->display();
 }
 
-=item _transfer_display_settings()
+=item transfer_display_settings()
 
 Transfers all display-specific settings from search widget object to the
 search display widget object.
 
 =cut
 
-sub _transfer_display_settings {
+sub transfer_display_settings {
     my ($self) = @_;
     foreach my $var (
-        qw/-action_uri
-           -columndata_closures
-           -currency_columns
-           -display_columns
-           -column_titles
-           -column_align
-           -numeric_columns
-           -optional_header
-           -optional_footer
-           -page_range_nav_limit
-           -post_nondb_columns
-           -pre_nondb_columns
-           -unsortable_columns
-           -sortable_columns
-           -grid_columns
-           -browse_mode
+        qw/results
+           numresults
+           page
+           lastpage
+           sortby
+           sort_reverse
           /) {
-        if (defined $self->{$var}) {
-            $self->{display}->{$var} = $self->{$var};
-        }
+        $self->{display}->{$var} = $self->{$var} if defined $self->{$var};
+    }
+    foreach my $var (keys %$self) {
+        $self->{display}->{$var} = $self->{$var} if substr($var, 0, 1) eq '-';
     }
 }
 
@@ -724,24 +727,6 @@ sub extract_alias_from_sql_column {
     return $alias || $full_sql_column;
 }
 
-sub extra_vars_for_uri {
-    my ($self, $exclude_param_list) = @_;
-    return '' unless ref $self->{-href_extra_vars} eq 'HASH';
-    my %exclude = map {$_=>1} @{$exclude_param_list||[]};
-    return join('&', map {
-        $exclude{$_} ? ()
-          : uri_escape($_).'='.uri_escape(defined $self->{-href_extra_vars}->{$_}
-                                          ? $self->{-href_extra_vars}->{$_}
-                                          : $self->{q}->param($_) || '');
-    } keys %{$self->{-href_extra_vars}});
-}
-
-sub extra_vars_for_form {
-    my ($self) = @_;
-    return '' unless ref $self->{-form_extra_vars} eq 'HASH';
-    return join('', map { $self->{q}->hidden($_) } sort keys %{$self->{-form_extra_vars}});
-}
-
 
 1;
 __END__
@@ -784,6 +769,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 LAST MODIFIED
 
-Jun 27, 2010
+Feb 10, 2014
 
 =cut

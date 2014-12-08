@@ -83,7 +83,6 @@ Returns HTML rendering of current page in search results, along with navigation 
 
 sub display_dataset {
     my ($self) = @_;
-
     my @grid_rows;
     foreach my $i (0 .. $#{ $self->{'dataset_cells_html'} }) {
         if ($i % $self->{-grid_columns} == 0) {
@@ -92,12 +91,13 @@ sub display_dataset {
             $grid_rows[-1] .= $self->{'dataset_cells_html'}->[$i];
         }
     }
+
     return ($self->{-optional_header}||'')
       . $self->extra_vars_for_form()
       . ($self->{-browse_mode}
            ? $self->display_pager_links(1, 0, 1)
-           : '<div align="right">Sort by: '.$self->display_sort_popup.'</div>'.$self->display_pager_links(1, 0))
-      . '<table class="'.($self->{-css_grid_class} || 'searchWidgetGridTable').'" width="96%">'
+           : '<div align="right">'.$self->translate('Sort by').': '.$self->display_sort_popup.'</div>'.$self->display_pager_links(1, 0))
+      . '<table id="'.($self->{-css_grid_id} || 'searchWidgetGridId').'" class="'.($self->{-css_grid_class} || 'searchWidgetGridTable').'">'
         . $self->{q}->Tr([ @grid_rows ])
       . '</table>'
       . ($self->{-browse_mode}
@@ -128,11 +128,11 @@ sub display_sort_popup {
         -name => 'sortby_columns_popup',
         -values => [ '', map { $self->sortby_column_uri($_) } @{ $self->{'sortable_columns'} } ],
         -labels => {
-            '' => '<Sort field>',
+            '' => '<'.$self->translate('Sort field').'>',
             map { $self->sortby_column_uri($_) => $self->{-display_columns}->{$_} || $_ }
               @{$self->{'sortable_columns'}}
         },
-        -onchange => 'javascript:if (this.value) window.location=this.value;',
+        -onchange => $self->{'action_uri_jsfunc'} ? 'var code = this.value; eval(code);' : 'if (this.value) window.location=this.value;',
         -default => $q->param('sortby') ? $self->sortby_column_uri($q->param('sortby')) : undef,
     );
 }

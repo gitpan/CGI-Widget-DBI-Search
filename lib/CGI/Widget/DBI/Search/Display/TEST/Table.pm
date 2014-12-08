@@ -178,6 +178,32 @@ sub test_search__sorting__supports_href_and_form_extra_vars
     );
 }
 
+sub test_search__sorting_in_action_uri_js_function_mode__supports_href_and_form_extra_vars
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+
+    $self->_setup_test_search__sorting();
+    $ws->{q}->param('href_testvar', 'foo');
+    $ws->{q}->param('form_hiddenvar', 'bar');
+    $ws->{-href_extra_vars} = { href_testvar => undef };
+    $ws->{-form_extra_vars} = { form_hiddenvar => undef };
+    $ws->{-action_uri_js_function} = 'myCustomFunc';
+    $ws->search();
+
+    # only displays most recent sorting
+    $self->assert_display_contains(
+        [ 'input type="hidden" name="form_hiddenvar" value="bar' ],
+        [ 'At first page', 'At last page' ],
+        [ map { ("\QmyCustomFunc({ 'sortby': '$_', 'href_testvar': 'foo' });\E.*", $_) } qw/widget_no name description size/ ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'At first page', 'At last page' ],
+    );
+}
+
 sub test_search__paging_and_sorting_together
 {
     my $self = shift;

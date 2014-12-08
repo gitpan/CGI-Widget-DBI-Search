@@ -8,6 +8,33 @@ all changes without author attribution are by Adi Fairbank
 
 =over 3
 
+=item 0.31 - Dec 8, 2014
+
+Add -i18n_translation_strings option for internationalization support (provide translations for
+user-visible english text)
+
+Add class attributes and <span>s to allow better styling: in AbstractDisplay->display_pager_links(),
+and Display::Table->render_column_headers()
+
+Add -page_nav_link_onclick option for running javascript in onclick event for all page navigation links
+
+Add -css_grid_id option for setting search results table HTML id attribute in Display::Grid
+
+Add -css_table_id option for setting search results table HTML id attribute in Display::Table
+
+Add -action_uri_js_function option, for use in AJAX mode
+
+Minor improvements to allow better styling: add table class attribute searchResultsNavBarTable
+to navigation bar tables at top and bottom of search results
+
+Fix for utf8 characters in -form_extra_vars param values when param set to undef (which is used
+by CGI::Widget::DBI::Browse)
+
+Fix for utf8 characters in -href_extra_vars param values when param set to undef (which is used
+in sortby and nav URIs)
+
+Minor / syntax fixes for backwards compatibility with perl 5.8, which had broken in 0.30
+
 =item 0.30 - Feb 11, 2014
 
 Add utf8 decoding method in Base class, and utf8-decode all non-numeric, non-columndata_closure cell

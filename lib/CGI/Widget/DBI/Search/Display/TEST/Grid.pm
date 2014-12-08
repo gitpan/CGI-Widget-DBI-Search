@@ -174,6 +174,34 @@ sub test_search__sorting__supports_href_and_form_extra_vars
     );
 }
 
+sub test_search__sorting_in_action_uri_js_function_mode__supports_href_and_form_extra_vars
+{
+    my $self = shift;
+    my $ws = $self->{ws};
+
+    $self->_setup_test_search__sorting();
+    $ws->{q}->param('href_testvar', 'foo');
+    $ws->{q}->param('form_hiddenvar', 'bar');
+    $ws->{-href_extra_vars} = { href_testvar => undef };
+    $ws->{-form_extra_vars} = { form_hiddenvar => undef };
+    $ws->{-action_uri_js_function} = 'myCustomFunc';
+    $ws->search();
+
+    # only displays most recent sorting
+    $self->assert_display_contains(
+        [ 'input type="hidden" name="form_hiddenvar" value="bar' ],
+        [ 'div', 'align', 'right', 'Sort by', 'sortby_columns_popup', ],
+        [ map { ("\QmyCustomFunc({ &#39;sortby&#39;: &#39;$_&#39;, &#39;href_testvar&#39;: &#39;foo&#39\E", $_) } qw/widget_no name description size/ ],
+        [ 'tr', 'td' ],
+        [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
+        [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
+        [ 'td', 'tr', 'tr', 'td' ],
+        [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
+        [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
+        [ 'td', 'tr' ],
+    );
+}
+
 sub test_search__only_allows_sorting_by_specified_columns
 {
     my $self = shift;
@@ -338,12 +366,12 @@ sub test_browse_mode_with_paging
     $ws->search();
 
     $self->assert_display_contains(
-        [ 'At first page', '2', 'results displayed', '1 - 2', 'of', '4', 'Next&gt', 'Last&gt' ],
+        [ 'At first page', '2', 'results displayed', '1 - 2', 'of', '4', 'Next &gt', 'Last &gt' ],
         [ 'tr', 'td' ],
         [ 1, 'clock_widget', 'A time keeper widget', 'small' ],
         [ 2, 'calendar_widget', 'A date tracker widget', 'medium' ],
         [ 'td', 'tr' ],
-        [ 'At first page', 'Next&gt', 'Last&gt' ],
+        [ 'At first page', 'Next &gt', 'Last &gt' ],
     );
     $self->assert_display_does_not_contain([ 'Sort by', 'sortby_columns_popup' ]);
     $self->assert_display_does_not_contain([ 'Sort field' ]);
@@ -363,12 +391,12 @@ sub test_browse_mode_with_paging
     $ws->search();
 
     $self->assert_display_contains(
-        [ 'lt;First', 'lt;Previous', '2', 'results displayed', '3 - 4', 'of', '4', 'At last page' ],
+        [ 'lt; First', 'lt; Previous', '2', 'results displayed', '3 - 4', 'of', '4', 'At last page' ],
         [ 'tr', 'td' ],
         [ 3, 'silly_widget', 'A goofball widget', 'unknown' ],
         [ 4, 'gps_widget', 'A GPS widget', 'medium' ],
         [ 'td', 'tr' ],
-        [ 'lt;First', 'lt;Previous', 'At last page' ],
+        [ 'lt; First', 'lt; Previous', 'At last page' ],
     );
 }
 

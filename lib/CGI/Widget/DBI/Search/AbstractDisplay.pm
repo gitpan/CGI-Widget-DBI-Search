@@ -92,6 +92,20 @@ Sets object variables for displaying search results.  Called from display() meth
 
 sub _set_display_defaults {
     my ($self) = @_;
+    # read ordered list of table columns
+    $self->{'sql_table_display_columns'} = ref $self->{-sql_retrieve_columns} eq 'ARRAY'
+      ? [ @{$self->{-sql_retrieve_columns}} ] : [ @{$self->{-sql_table_columns}} ];
+
+    $self->_init_header_columns();
+
+    if ($self->{'-action_uri_js_function'}) {
+        $self->{'action_uri_jsfunc'} = $self->{'-action_uri_js_function'};
+        if (ref $self->{-href_extra_vars} eq 'HASH') {
+            $self->{'json_extra_vars'} = $self->extra_vars_for_json();
+        }
+        return;
+    }
+
     $self->{'action_uri'} = $self->{-action_uri} || $ENV{SCRIPT_NAME} || '';
 
     $self->{'href_extra_vars'} = '';
@@ -103,12 +117,6 @@ sub _set_display_defaults {
     }
     $self->{'href_extra_vars'} = '&'.$self->{'href_extra_vars'}
       if $self->{'href_extra_vars'} && $self->{'href_extra_vars'} !~ m/^&/;
-
-    # read ordered list of table columns
-    $self->{'sql_table_display_columns'} = ref $self->{-sql_retrieve_columns} eq 'ARRAY'
-      ? [ @{$self->{-sql_retrieve_columns}} ] : [ @{$self->{-sql_table_columns}} ];
-
-    $self->_init_header_columns();
 }
 
 =item _init_header_columns()
@@ -147,17 +155,33 @@ sorted by $column, then the URI returned will be for reversing the sort.
 
 sub sortby_column_uri {
     my ($self, $column) = @_;
+    if ($self->{'action_uri_jsfunc'}) {
+        my $json = _json_sortby_params($self, $column, 1);
+        $json .= ', '.$self->{'json_extra_vars'} if $self->{'json_extra_vars'};
+        return $self->{'action_uri_jsfunc'}.'({ '.$json.' });';
+    }
     return $self->BASE_URI . $self->{'action_uri'} . '?'
-      . $self->_query_string_sortby_params($column, 1) . ($self->{'href_extra_vars'} || '');
+      . _query_string_sortby_params($self, $column, 1) . ($self->{'href_extra_vars'} || '');
 }
 
-sub _query_string_sortby_params {
+sub _data_for_sortby_params {
     my ($self, $column, $for_sortlink) = @_;
     my $reverse = $self->{'sort_reverse'}->{$column};
     $reverse = ! $reverse if $for_sortlink;
     my $sortby = $self->{'sortby'} && $column eq $self->{'sortby'};
-    return 'sortby=' . $column
-      . ($sortby ? '&sort_reverse='.($reverse ? '1':'0') : '');
+    return ($sortby, $reverse);
+}
+
+sub _query_string_sortby_params {
+    my ($self, $column, $for_sortlink) = @_;
+    my ($sortby, $reverse) = $self->_data_for_sortby_params($column, $for_sortlink);
+    return 'sortby=' . $column . ($sortby ? '&sort_reverse='.($reverse ? '1':'0') : '');
+}
+
+sub _json_sortby_params {
+    my ($self, $column, $for_sortlink) = @_;
+    my ($sortby, $reverse) = $self->_data_for_sortby_params($column, $for_sortlink);
+    return qq|'sortby': '$column'| . ($sortby ? q|, 'sort_reverse': |.($reverse ? '1':'0') : '');
 }
 
 =item next_page_exists()
@@ -232,12 +256,24 @@ Pages start at 0, with each page containing at most -max_results_per_page.
 
 sub make_nav_uri {
     my ($self, $page_no) = @_;
+    return make_nav_jsfunc_uri($self, $page_no) if $self->{'action_uri_jsfunc'};
+
     my $link = $self->BASE_URI.$self->{'action_uri'}.'?search_startat='.$page_no;
     if ($self->{-no_persistent_object} && $self->{'sortby'}) {
-        $link .= '&'.$self->_query_string_sortby_params($self->{'sortby'});
+        $link .= '&'._query_string_sortby_params($self, $self->{'sortby'});
     }
     $link .= $self->{'href_extra_vars'} || '';
     return $link;
+}
+
+sub make_nav_jsfunc_uri {
+    my ($self, $page_no) = @_;
+    my $json = 'search_startat: '.$page_no;
+    if ($self->{-no_persistent_object} && $self->{'sortby'}) {
+        $json .= ', '._json_sortby_params($self, $self->{'sortby'});
+    }
+    $json .= ', '.$self->{'json_extra_vars'} if $self->{'json_extra_vars'};
+    return 'javascript:'.$self->{'action_uri_jsfunc'}.'({ '.$json.' });';
 }
 
 =item display_pager_links($showtotal, $showpages, $hide_if_singlepage)
@@ -267,36 +303,36 @@ sub display_pager_links {
     my $searchtotal = $self->{'numresults'};
     my $middle_column = $showtotal || $showpages && $searchtotal;
     my $next_page_exists = $self->next_page_exists();
+    my $onclick_js = $self->{-page_nav_link_onclick} ? ' onclick="'.$self->{-page_nav_link_onclick}.'"' : '';
 
     return '' if $hide_if_singlepage && $startat == 0 && !$next_page_exists;
-    return '<table width="96%"><tr>'
-      .'<td align="left" width="'.($middle_column ? '30%' : '50%').'">'
+    return '<table class="searchResultsNavBarTable '.($showpages ? 'bottom' : 'top').'" width="100%"><tr>'
+      .'<td class="searchResultPagerLeftTd" align="left" nowrap="1" width="'.($middle_column ? '30%' : '50%').'">'
         .'<span class="searchResultPagerLinks">'
           .($startat > 0
-              ? '<b>'.($self->first_page_uri() ? '<a href="'.$self->first_page_uri().'">|&lt;First</a>&nbsp;&nbsp;&nbsp;' : '')
-                .'<a href="'.$self->prev_page_uri().'">&lt;Previous</a></b>'
-              : '|At first page')
+              ? '<b>'.($self->first_page_uri() ? '<a class="firstPageLink" href="'.$self->first_page_uri().'"'.$onclick_js.'><span>|&lt; '.$self->translate('First').'</span></a>&nbsp;&nbsp;&nbsp;' : '')
+                .'<a class="prevPageLink" href="'.$self->prev_page_uri().'"'.$onclick_js.'><span>&lt; '.$self->translate('Previous').'</span></a></b>'
+              : '<span class="atFirstPageLabel"><span>'.$self->translate('At first page').'</span></span>')
         .'</span></td>'
       .($middle_column
-          ? '<td align="center" width="40%" nowrap="1">'
+          ? '<td class="searchResultPagerMiddleTd" align="center" nowrap="1" width="40%">'
             .($showtotal
-                ? '<b>'.$pagetotal.'</b> result'.($pagetotal == 1 ? '' : 's').' displayed'
+                ? '<span class="numResultsDisplayedLabel"><b>'.$pagetotal.'</b> '.($pagetotal == 1 ? $self->translate('result') : $self->translate('results')).' '.$self->translate('displayed').': </span>'
                   .($searchtotal
-                      ? (': <b>'.($startat*$maxpagesize + 1).' - '.
-                           ($startat*$maxpagesize + $pagetotal).'</b> of <b>'.$searchtotal.'</b>')
+                      ? '<span class="resultRangeDisplayed"><b>'.($startat*$maxpagesize + 1).' - '.($startat*$maxpagesize + $pagetotal).'</b> '.$self->translate('of').' <b>'.$searchtotal.'</b></span>'
                       : '').'<br/>'
                 : '')
             .($showpages && $searchtotal
-                ? '<span class="searchResultPagerLinks">Skip to page: '.$self->display_page_range_links($startat).'</span>'
+                ? '<span class="searchResultPagerLinks"><span class="skipToPageLabel"><span>'.$self->translate('Skip to page').': </span></span>'.$self->display_page_range_links($startat).'</span>'
                 : '')
             .'</td>'
           : '')
-      .'<td align="right" width="'.($middle_column ? '30%' : '50%').'">'
+      .'<td class="searchResultPagerRightTd" align="right" nowrap="1" width="'.($middle_column ? '30%' : '50%').'">'
         .'<span class="searchResultPagerLinks">'
           .($next_page_exists
-              ? '<b><a href="'.$self->next_page_uri().'">Next&gt;</a>'
-                .($self->last_page_uri() ? '&nbsp;&nbsp;&nbsp;<a href="'.$self->last_page_uri().'">Last&gt;|</a>' : '').'</b>'
-              : 'At last page|')
+              ? '<b><a class="nextPageLink" href="'.$self->next_page_uri().'"'.$onclick_js.'><span>'.$self->translate('Next').' &gt;</span></a>'
+                .($self->last_page_uri() ? '&nbsp;&nbsp;&nbsp;<a class="lastPageLink" href="'.$self->last_page_uri().'"'.$onclick_js.'><span>'.$self->translate('Last').' &gt;|</span></a>' : '').'</b>'
+              : '<span class="atLastPageLabel"><span>'.$self->translate('At last page').'</span></span>')
         .'</span></td>'
       .'</tr></table>';
 }
@@ -341,8 +377,10 @@ sub display_page_range_links {
         $pre = '... ';
         $post = ' ...';
     }
+
+    my $onclick_js = $self->{-page_nav_link_onclick} ? ' onclick="'.$self->{-page_nav_link_onclick}.'"' : '';
     return $pre.join(' ', map {
-        $startat == $_ ? '<b>'.$_.'</b>' : '<a href="'.make_nav_uri($self, $_).'">'.$_.'</a>'
+        $startat == $_ ? '<b>'.$_.'</b>' : '<a href="'.make_nav_uri($self, $_).'"'.$onclick_js.'>'.$_.'</a>'
     } @page_range).$post;
 }
 

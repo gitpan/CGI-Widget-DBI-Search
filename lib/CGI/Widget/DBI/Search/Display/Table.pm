@@ -88,7 +88,7 @@ sub render_column_headers {
             $header_th_html .= $self->{q}->th(
                 {-class => $self->{-css_table_unsortable_header_cell_class} || 'searchWidgetTableUnsortableHeaderCell',
                  %th_attributes, %extra_th_attributes},
-                $self->{-display_columns}->{$col},
+                '<span>'.$self->{-display_columns}->{$col}.'</span>',
             );
         } else {
             my $sortby = $self->{'sortby'} && $col eq $self->{'sortby'};
@@ -96,9 +96,9 @@ sub render_column_headers {
                 {-class => $self->{-css_table_header_cell_class} || 'searchWidgetTableHeaderCell',
                  %th_attributes, %extra_th_attributes},
                 ($sortby ? '<b>' : '')
-                  .'<a href="'.$self->sortby_column_uri($col).'" title="'.($self->{-column_titles}->{$col} || 'Sort by: '.$self->{-display_columns}->{$col}).'">'
-                  .'<span>'.$self->{-display_columns}->{$col}.'</span></a>'
-                  .' '.($sortby ? ($self->{'sort_reverse'}->{$col} ? '\\/' :'/\\').'</b>' : '')
+                  .'<a href="'.($self->{'action_uri_jsfunc'} ? 'javascript:' : '').$self->sortby_column_uri($col).'" title="'.($self->{-column_titles}->{$col} || $self->translate('Sort by').': '.$self->{-display_columns}->{$col}).'">'
+                  .'<span>'.$self->{-display_columns}->{$col}.'</span></a> '
+                  .($sortby ? ($self->{'sort_reverse'}->{$col} ? '\\/' :'/\\').'</b>' : '')
               );
         }
     }
@@ -116,7 +116,7 @@ sub display_dataset {
     return ($self->{-optional_header}||'')
       . $self->extra_vars_for_form()
       . $self->display_pager_links(1, 0)
-      . '<table class="'.($self->{-css_table_class} || 'searchWidgetTableTable').'" width="96%">'
+      . '<table id="'.($self->{-css_table_id} || 'searchWidgetTableId').'" class="'.($self->{-css_table_class} || 'searchWidgetTableTable').'">'
         . '<thead>'.$self->{'header_html'}.'</thead>'
         . '<tbody>'.join('', @{ $self->{'dataset_rows_html'} }).'</tbody>'
       . '</table>'

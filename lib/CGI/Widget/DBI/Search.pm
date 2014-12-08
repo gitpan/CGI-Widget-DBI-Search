@@ -4,7 +4,7 @@ use strict;
 
 use base qw/ CGI::Widget::DBI::Search::Base /;
 use vars qw/ $VERSION /;
-$CGI::Widget::DBI::Search::VERSION = '0.30';
+$CGI::Widget::DBI::Search::VERSION = '0.31';
 
 use DBI;
 use CGI::Widget::DBI::Search::Display::Table;
@@ -178,8 +178,7 @@ the search logic (SQL query executed).
                              search, with First/Last page navigation links
                              (default: true)
 
-The following settings only affect display of search results, not the
-search logic.
+The following settings only affect display of search results, not the search logic.
 
   -display_columns        => {HASH} Associative array holding column names as
                              keys, and labels for display table as values,
@@ -222,9 +221,18 @@ search logic.
                              including the meaning of keys with undef values.
   -action_uri             => HTTP URI of script this is running under
                              (default: SCRIPT_NAME environment variable),
+  -action_uri_js_function => Optional javascript function call as action URI syntax. If this
+                             is set, it overrides -action_uri and all navigation and sort links
+                             become function calls to this function, with a single argument which
+                             contains a JSON hash with all active search params.  Note also, when
+                             this is set, params -href_extra_vars will be converted to JSON
+                             key/values and passed in the function call argument, but
+                             -href_extra_vars_qs and -form_extra_vars will be ignored.
   -page_range_nav_limit   => Maximum number of pages to allow user to navigate to
                              before and after the current page in the result set
                              (default: 10)
+  -page_nav_link_onclick  => Optional javascript code to call as onclick event when user clicks a
+                             page navigation link (e.g. First, Prev, Next, Last, or page number)
   -columndata_closures    => {HASH} of (CODE): Reference to a hash containing a
                              code reference for each column which should be
                              passed through before displaying in result table.
@@ -263,9 +271,13 @@ search logic.
 
 =item CSS / Skinning options
 
+Note: these should really be named -html_... instead of -css_..., but leaving as-is for legacy code.
+
+  -css_grid_id           => (default: searchWidgetGridId)
   -css_grid_class        => (default: searchWidgetGridTable)
   -css_grid_cell_class   => (default: searchWidgetGridCell)
 
+  -css_table_id                => (default: searchWidgetTableId)
   -css_table_class             => (default: searchWidgetTableTable)
   -css_table_row_class         => (default: searchWidgetTableRow)
   -css_table_header_row_class  => (default: searchWidgetTableHeaderRow)
@@ -278,6 +290,13 @@ search logic.
                                          anonymous sub takes two arguments: the display object and the results row
   -extra_table_cell_attributes        => {HASH} -OR- (CODE) Same as above except for table display_mode instead of grid
   -extra_table_header_cell_attributes => {HASH} -OR- (CODE) Same as above except for table display_mode instead of grid
+
+These can be configured for non-English apps (i18n):
+
+  -i18n_translation_strings => {HASH} English-to-other-language hash used for user-visible words;
+                               current strings displayed: Previous, Next, First, Last, At first page, At last page,
+                               Skip to page, result, results, of, displayed, Sort by, Sort field,
+                               (and if using Browse widget): Top, all results, Show all items in this category
 
 =back
 
@@ -661,6 +680,11 @@ sub display_results {
     return $self->{display}->display();
 }
 
+=item translate($string)
+
+Translation method: just looks up $string in -i18n_translation_strings hash, and if a hit is found returns it;
+otherwise returns $string.
+
 =item transfer_display_settings()
 
 Transfers all display-specific settings from search widget object to the
@@ -750,7 +774,7 @@ Adi Fairbank <adi@adiraj.org>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2004-2010  Adi Fairbank
+Copyright (C) 2004-2014  Adi Fairbank
 
 =head1 COPYLEFT (LICENSE)
 
@@ -769,6 +793,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 LAST MODIFIED
 
-Feb 10, 2014
+Dec 7, 2014
 
 =cut
